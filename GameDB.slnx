@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="GameDB.Application/GameDB.Application.csproj" />
+  <Project Path="GameDB.Domain/GameDB.Domain.csproj" />
+  <Project Path="GameDB.Infrastructure/GameDB.Infrastructure.csproj" />
+  <Project Path="GameDB.Web/GameDB.Web.csproj" />
+</Solution>

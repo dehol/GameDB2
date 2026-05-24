@@ -1,0 +1,9 @@
+GET http://localhost:5295/catalog
+###
+POST http://localhost:5295/api/steam/import-basic
+###
+POST http://localhost:5295/api/steam/details/start
+###
+POST http://localhost:5295/api/steam/details/stop
+###
+GET http://localhost:5295/api/steam/details/status
