@@ -1,7 +1,13 @@
 namespace GameDB.Application.Services;
 
-public class SteamImportState
+// ARCH-7 fix: volatile keyword ensures cross-thread visibility (ARM-safe)
+public sealed class SteamImportState
 {
-    // Прапорець, який каже воркеру, чи потрібно стягувати деталі
-    public bool IsImportingDetails { get; set; } = false;
+    private volatile bool _isImportingDetails;
+
+    public bool IsImportingDetails
+    {
+        get => _isImportingDetails;
+        set => _isImportingDetails = value;
+    }
 }

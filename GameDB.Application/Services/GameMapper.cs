@@ -9,7 +9,6 @@ public class GameMapper
     {
         game.Description = details.detailed_description ?? details.short_description;
         game.HeaderImage = details.header_image;
-        game.IsFree = details.is_free;
         game.IconImage = details.capsule_imagev5 ?? details.capsule_image;
         game.UpdatedAt = DateTime.UtcNow;
 

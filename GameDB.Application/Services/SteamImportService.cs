@@ -159,7 +159,7 @@ public class SteamImportService
                 
                 await Task.Delay(backoffSeconds, ct);
                 
-                backoffSeconds = Math.Min(backoffSeconds * 2, 10);
+                backoffSeconds = Math.Min(backoffSeconds * 2, _options.PauseAfterErrorMs * 10);
                 requestsSinceLastPause = 0; 
                 i--;
             }

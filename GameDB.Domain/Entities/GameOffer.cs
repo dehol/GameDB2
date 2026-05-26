@@ -1,7 +1,5 @@
-﻿using System;
-using System.Collections.Generic;
+﻿namespace GameDB.Domain.Entities;
 
-namespace GameDB.Domain.Entities;
 public partial class GameOffer
 {
     public int GameOfferId { get; set; }
@@ -23,6 +21,8 @@ public partial class GameOffer
     public DateTime? LastSyncedAt { get; set; }
 
     public string? ItadUuid { get; set; }
+
+    public decimal? FinalPrice { get; set; }
 
     public virtual Game Game { get; set; } = null!;
 

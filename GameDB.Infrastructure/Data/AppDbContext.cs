@@ -1,5 +1,7 @@
-﻿using Microsoft.EntityFrameworkCore;
-using  GameDB.Domain.Entities;
+﻿using System;
+using System.Collections.Generic;
+using Microsoft.EntityFrameworkCore;
+using GameDB.Domain.Entities;
 namespace GameDB.Infrastructure.Data;
 
 public partial class AppDbContext : DbContext
@@ -40,7 +42,6 @@ public partial class AppDbContext : DbContext
     public virtual DbSet<Wishlist> Wishlists { get; set; }
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
-#warning To protect potentially sensitive information in your connection string, you should move it out of source code. You can avoid scaffolding the connection string by using the Name= syntax to read it from configuration - see https://go.microsoft.com/fwlink/?linkid=2131148. For more guidance on storing connection strings, see https://go.microsoft.com/fwlink/?LinkId=723263.
         => optionsBuilder.UseNpgsql("Host=localhost;Port=5432;Database=mygamedb;Username=postgres;Password=postgres");
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -61,6 +62,8 @@ public partial class AppDbContext : DbContext
         modelBuilder.Entity<Developer>(entity =>
         {
             entity.ToTable("Developer");
+
+            entity.HasIndex(e => e.Name, "IX_Developer_Name").IsUnique();
         });
 
         modelBuilder.Entity<Game>(entity =>
@@ -70,8 +73,6 @@ public partial class AppDbContext : DbContext
             entity.HasIndex(e => e.DeveloperId, "IX_Game_DeveloperId");
 
             entity.HasIndex(e => e.PublisherId, "IX_Game_PublisherId");
-
-            entity.HasIndex(e => e.Slug, "UQ_Game_Slug").IsUnique();
 
             entity.HasIndex(e => e.SteamAppId, "UQ_Game_SteamAppId").IsUnique();
 
@@ -102,6 +103,8 @@ public partial class AppDbContext : DbContext
 
             entity.HasIndex(e => e.ShopId, "IX_GameOffer_ShopId");
 
+            entity.Property(e => e.FinalPrice).HasComputedColumnSql("(\"CurrentPrice\" * ((1)::numeric - ((\"CurrentDiscount\")::numeric / 100.0)))", true);
+
             entity.HasOne(d => d.Game).WithMany(p => p.GameOffers).HasForeignKey(d => d.GameId);
 
             entity.HasOne(d => d.Shop).WithMany(p => p.GameOffers).HasForeignKey(d => d.ShopId);
@@ -117,6 +120,8 @@ public partial class AppDbContext : DbContext
         modelBuilder.Entity<Genre>(entity =>
         {
             entity.ToTable("Genre");
+
+            entity.HasIndex(e => e.Name, "IX_Genre_Name").IsUnique();
         });
 
         modelBuilder.Entity<Notification>(entity =>
@@ -148,6 +153,8 @@ public partial class AppDbContext : DbContext
         modelBuilder.Entity<Publisher>(entity =>
         {
             entity.ToTable("Publisher");
+
+            entity.HasIndex(e => e.Name, "IX_Publisher_Name").IsUnique();
         });
 
         modelBuilder.Entity<User>(entity =>
@@ -205,18 +212,6 @@ public partial class AppDbContext : DbContext
         });
 
         OnModelCreatingPartial(modelBuilder);
-        
-        modelBuilder.Entity<Genre>()
-            .HasIndex(g => g.Name)
-            .IsUnique();
-
-        modelBuilder.Entity<Developer>()
-            .HasIndex(d => d.Name)
-            .IsUnique();
-
-        modelBuilder.Entity<Publisher>()
-            .HasIndex(p => p.Name)
-            .IsUnique();
     }
 
     partial void OnModelCreatingPartial(ModelBuilder modelBuilder);

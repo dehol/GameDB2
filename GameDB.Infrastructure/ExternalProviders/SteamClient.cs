@@ -3,7 +3,7 @@ using GameDB.Application.DTOs;
 using GameDB.Application.Interfaces;
 using Microsoft.Extensions.Configuration;
 
-namespace GameDB.Infrastructure.Steam;
+namespace GameDB.Infrastructure.ExternalProviders;
 
 public class SteamClient : ISteamClient
 {

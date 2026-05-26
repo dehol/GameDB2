@@ -1,27 +1,24 @@
+using GameDB.Application.DTOs;
 using GameDB.Domain.Entities;
 
 namespace GameDB.Application.Interfaces;
 
 public interface IGameRepository
 {
-    Task<Game?> GetByIdAsync(int gameId);
+    Task<Game?>          GetByIdAsync(int gameId, CancellationToken ct = default);
+    Task<Game?>          GetBySteamIdAsync(int steamAppId, CancellationToken ct = default);
+    Task<HashSet<int>>   GetExistingSteamAppIdsAsync(CancellationToken ct = default);
+    Task<List<int>>      GetAppIdsWithoutDetailsAsync(int count, CancellationToken ct = default);
+    Task<int>            GetTotalGamesCountAsync(CancellationToken ct = default);
+    Task<List<Game>>     GetGamesBatchAsync(int skip, int take, CancellationToken ct = default);
 
-     Task<Game?> GetBySlugAsync(string slug);
+    Task AddAsync(Game game, CancellationToken ct = default);
+    Task BulkAddAsync(IReadOnlyCollection<Game> games, CancellationToken ct = default);
+    Task UpdateAsync(Game game, CancellationToken ct = default);
+    Task DeleteAsync(int gameId, CancellationToken ct = default);
+    Task DeleteBySteamIdAsync(int steamAppId, CancellationToken ct = default);
 
-     Task<List<Game>> GetAllAsync();
-
-     Task<List<Game>> GetByGenreAsync(int genreId);
-
-     Task<HashSet<int>> GetExistingSteamAppIdsAsync();
-    Task AddAsync(Game game);
-    Task BulkAddAsync(List<Game> games);
-    Task UpdateAsync(Game game);
-    Task DeleteAsync(int gameId);
-
-    Task<Game?> GetBySteamIdAsync(int steamAppId);
     Task<Developer> GetOrCreateDeveloperAsync(string name);
     Task<Publisher> GetOrCreatePublisherAsync(string name);
     Task<Genre> GetOrCreateGenreAsync(string steamGenreId, string name);
-    Task<List<int>> GetAppIdsWithoutDetailsAsync(int count);
-    Task DeleteBySteamIdAsync(int steamAppId);
 }

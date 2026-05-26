@@ -26,8 +26,4 @@
     <ProjectReference Include="..\GameDB.Domain\GameDB.Domain.csproj" />
     <ProjectReference Include="..\GameDB.Application\GameDB.Application.csproj" />
   </ItemGroup>
-
-  <ItemGroup>
-    <Folder Include="Data\Repositories\" />
-  </ItemGroup>
 </Project>

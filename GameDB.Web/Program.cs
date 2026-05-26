@@ -6,7 +6,7 @@ using GameDB.Infrastructure.Data;
 using GameDB.Infrastructure.Steam;
 using Microsoft.EntityFrameworkCore;
 using GameDB.Infrastructure.Data.Repositories;
-
+using GameDB.Infrastructure.ExternalProviders;
 // 1. Ініціалізуємо "Bootstrap" логер (щоб зловити помилки, якщо програма навіть не зможе запуститись)
 Log.Logger = new LoggerConfiguration()
     .WriteTo.Console()
@@ -18,9 +18,18 @@ try
     
     var builder = WebApplication.CreateBuilder(args);
 
+    builder.Services.AddRazorPages();
+    builder.Services.AddControllers();
+    builder.Services.AddEndpointsApiExplorer();
+    builder.Services.AddSwaggerGen();
+
     builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
+    builder.Services.AddHttpClient<IItadClient, ItadClient>();
+    builder.Services.AddScoped<IGameOfferRepository, GameOfferRepository>();
 
+    builder.Services.AddScoped<PriceManagerService>();
+    builder.Services.AddScoped<ItadPriceSyncService>();
     builder.Services.AddHttpClient<ISteamClient, SteamClient>();
     builder.Services.AddScoped<IGameRepository, GameRepository>();
     
@@ -45,14 +54,24 @@ try
 
     builder.Services.Configure<SteamImportOptions>(builder.Configuration.GetSection("SteamImport"));
     // ---------------------------------
-    builder.Services.AddRazorPages();
     var app = builder.Build();
+
+    if (app.Environment.IsDevelopment())
+    {
+        app.UseSwagger();
+        app.UseSwaggerUI(c =>
+        {
+            // Робимо так, щоб Swagger відкривався за адресою /swagger
+            c.SwaggerEndpoint("/swagger/v1/swagger.json", "GameDB API V1");
+        });
+    }
+    app.UseHttpsRedirection();
     app.UseStaticFiles();
     app.UseRouting();
-    // 3. Додаємо Middleware для запису HTTP-запитів користувачів (опціонально, але корисно)
-    app.UseSerilogRequestLogging(); 
+    app.UseAuthorization();
 
-    // --- ТВОЇ ЕНДПОІНТИ ---
+    app.UseSerilogRequestLogging(); 
+    app.MapControllers();
     app.MapPost("/api/steam/details/start", (SteamImportState state) =>
     {
         state.IsImportingDetails = true;

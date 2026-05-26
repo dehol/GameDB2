@@ -1,7 +1,5 @@
-﻿using System;
-using System.Collections.Generic;
+﻿namespace GameDB.Domain.Entities;
 
-namespace GameDB.Domain.Entities;
 public partial class Developer
 {
     public int DeveloperId { get; set; }

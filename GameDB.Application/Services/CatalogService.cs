@@ -16,7 +16,8 @@ public class CatalogService
 
     public async Task<(List<GameSummaryDto> items, int totalCount)> GetCatalogAsync()
     {
-        var games = await _games.GetAllAsync();
+        throw new NotImplementedException();
+        /*var games = await _games.GetAllAsync();
         var items = new List<GameSummaryDto>();
 
         foreach (var game in games)
@@ -35,6 +36,6 @@ public class CatalogService
             ));
         }
 
-        return (items, items.Count);
+        return (items, items.Count);*/
     }
 }

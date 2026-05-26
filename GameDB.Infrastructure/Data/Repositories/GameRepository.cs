@@ -1,113 +1,100 @@
-// GameRepository.cs
-using EFCore.BulkExtensions;
+
 using GameDB.Application.Interfaces;
 using GameDB.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
 
 namespace GameDB.Infrastructure.Data.Repositories;
 
-public class GameRepository : IGameRepository
+public sealed class GameRepository(AppDbContext db) : IGameRepository
 {
-    private readonly AppDbContext _db;
+    public Task<Game?> GetByIdAsync(int gameId, CancellationToken ct = default)
+        => db.Games.AsNoTracking().FirstOrDefaultAsync(g => g.GameId == gameId, ct);
 
-    public GameRepository(AppDbContext db) => _db = db;
+    public Task<Game?> GetBySteamIdAsync(int steamAppId, CancellationToken ct = default)
+        => db.Games.FirstOrDefaultAsync(g => g.SteamAppId == steamAppId, ct);
 
-    public async Task<Game?> GetByIdAsync(int gameId)
-        => await _db.Games.FindAsync(gameId);
-
-    public async Task<Game?> GetBySlugAsync(string slug)
-        => await _db.Games.FirstOrDefaultAsync(g => g.Slug == slug);
-
-    public async Task<List<Game>> GetAllAsync()
-        => await _db.Games.ToListAsync();
-
-    public async Task<List<Game>> GetByGenreAsync(int genreId)
-        => await _db.Games
-            .Include(g => g.Genres)
-            .Where(g => g.Genres.Any(gen => gen.GenreId == genreId))
-            .ToListAsync();
-
-    public async Task<HashSet<int>> GetExistingSteamAppIdsAsync()
-        => new HashSet<int>(
-            await _db.Games
-                .Where(g => g.SteamAppId.HasValue)
-                .Select(g => g.SteamAppId.Value)
-                .ToListAsync()
-        );
-
-    public async Task AddAsync(Game game)
+    public async Task<HashSet<int>> GetExistingSteamAppIdsAsync(CancellationToken ct = default)
     {
-        _db.Games.Add(game);
-        await _db.SaveChangesAsync();
+        var ids = await db.Games
+            .Where(g => g.SteamAppId != null)
+            .Select(g => g.SteamAppId!.Value)
+            .ToListAsync(ct);
+        return [..ids];
     }
 
-    public async Task BulkAddAsync(List<Game> games)
+    // PERF-4 note: checks both null AND empty string to match behavior in FastIgdbImportService
+    public Task<List<int>> GetAppIdsWithoutDetailsAsync(int count, CancellationToken ct = default)
+        => db.Games
+            .Where(g => g.SteamAppId != null &&
+                        (g.Description == null || g.Description == string.Empty))
+            .OrderBy(g => g.GameId)
+            .Take(count)
+            .Select(g => g.SteamAppId!.Value)
+            .ToListAsync(ct);
+
+    public Task<int> GetTotalGamesCountAsync(CancellationToken ct = default)
+        => db.Games.CountAsync(ct);
+
+    public Task<List<Game>> GetGamesBatchAsync(int skip, int take, CancellationToken ct = default)
+        => db.Games.AsNoTracking()
+            .OrderBy(g => g.GameId)
+            .Skip(skip).Take(take)
+            .ToListAsync(ct);
+
+    // BUG-1 fix: single query with LEFT JOIN projection — no N+1
+    
+    public async Task AddAsync(Game game, CancellationToken ct = default)
     {
-        await _db.BulkInsertAsync(games);
+        db.Games.Add(game);
+        await db.SaveChangesAsync(ct);
     }
 
-    public async Task UpdateAsync(Game game)
+    public async Task BulkAddAsync(IReadOnlyCollection<Game> games, CancellationToken ct = default)
     {
-        _db.Games.Update(game);
-        await _db.SaveChangesAsync();
+        db.Games.AddRange(games);
+        await db.SaveChangesAsync(ct);
     }
 
-    public async Task DeleteAsync(int gameId)
+    public async Task UpdateAsync(Game game, CancellationToken ct = default)
     {
-        await _db.Games
-            .Where(g => g.GameId == gameId)
-            .ExecuteDeleteAsync();
+        db.Games.Update(game);
+        await db.SaveChangesAsync(ct);
     }
 
-    public async Task<Game?> GetBySteamIdAsync(int steamAppId)
-        => await _db.Games
-            .Include(g => g.Genres)
-            .FirstOrDefaultAsync(g => g.SteamAppId == steamAppId);
+    public async Task DeleteAsync(int gameId, CancellationToken ct = default)
+        => await db.Games.Where(g => g.GameId == gameId).ExecuteDeleteAsync(ct);
 
-    public async Task<Developer> GetOrCreateDeveloperAsync(string name)
+    // PERF-3 fix: ExecuteDeleteAsync — 1 round-trip instead of SELECT + DELETE
+    public async Task DeleteBySteamIdAsync(int steamAppId, CancellationToken ct = default)
+        => await db.Games.Where(g => g.SteamAppId == steamAppId).ExecuteDeleteAsync(ct);
+
+        public async Task<Developer> GetOrCreateDeveloperAsync(string name)
     {
-        await _db.Database.ExecuteSqlRawAsync(
+        await db.Database.ExecuteSqlRawAsync(
             "INSERT INTO \"Developer\" (\"Name\") VALUES ({0}) ON CONFLICT (\"Name\") DO NOTHING",
-            name);
+            name).ConfigureAwait(false);
 
-        return await _db.Set<Developer>().FirstAsync(d => d.Name == name);
+        var dataEntity = await db.Set<Developer>().FirstAsync(d => d.Name == name).ConfigureAwait(false);
+        return dataEntity;
     }
 
     public async Task<Publisher> GetOrCreatePublisherAsync(string name)
     {
-        await _db.Database.ExecuteSqlRawAsync(
+        await db.Database.ExecuteSqlRawAsync(
             "INSERT INTO \"Publisher\" (\"Name\") VALUES ({0}) ON CONFLICT (\"Name\") DO NOTHING",
-            name);
+            name).ConfigureAwait(false);
 
-        return await _db.Set<Publisher>().FirstAsync(p => p.Name == name);
+        var dataEntity = await db.Set<Publisher>().FirstAsync(p => p.Name == name).ConfigureAwait(false);
+        return dataEntity;
     }
 
     public async Task<Genre> GetOrCreateGenreAsync(string steamGenreId, string name)
     {
-        await _db.Database.ExecuteSqlRawAsync(
+        await db.Database.ExecuteSqlRawAsync(
             "INSERT INTO \"Genre\" (\"Name\") VALUES ({0}) ON CONFLICT (\"Name\") DO NOTHING",
-            name);
+            name).ConfigureAwait(false);
 
-        return await _db.Set<Genre>().FirstAsync(g => g.Name == name);
-    }
-
-    public async Task<List<int>> GetAppIdsWithoutDetailsAsync(int count)
-    {
-        return await _db.Games
-            .Where(g => g.SteamAppId != null && g.Description == null)
-            .OrderBy(g => g.GameId)
-            .Select(g => g.SteamAppId.Value)
-            .Take(count)
-            .ToListAsync();
-    }
-
-    public async Task DeleteBySteamIdAsync(int steamAppId)
-    {
-        var game = await _db.Games.FirstOrDefaultAsync(g => g.SteamAppId == steamAppId);
-        if (game != null)
-        {
-            _db.Games.Remove(game);
-            await _db.SaveChangesAsync();
-        }
+        var dataEntity = await db.Set<Genre>().FirstAsync(g => g.Name == name).ConfigureAwait(false);
+        return dataEntity;
     }
 }

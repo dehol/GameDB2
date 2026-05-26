@@ -1,7 +1,5 @@
-﻿using System;
-using System.Collections.Generic;
+﻿namespace GameDB.Domain.Entities;
 
-namespace GameDB.Domain.Entities;
 public partial class Game
 {
     public int GameId { get; set; }
@@ -28,10 +26,6 @@ public partial class Game
 
     public int? SteamAppId { get; set; }
 
-    public string? Slug { get; set; }
-
-    public bool IsFree { get; set; } 
-    
     public string? IconImage { get; set; }
 
     public virtual ICollection<Alert> Alerts { get; set; } = new List<Alert>();
@@ -45,6 +39,5 @@ public partial class Game
     public virtual ICollection<UserLibrary> UserLibraries { get; set; } = new List<UserLibrary>();
 
     public virtual ICollection<Wishlist> Wishlists { get; set; } = new List<Wishlist>();
-
     public virtual ICollection<Genre> Genres { get; set; } = new List<Genre>();
 }
