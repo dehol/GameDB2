@@ -161,7 +161,13 @@ public partial class AppDbContext : DbContext
         {
             entity.ToTable("User");
 
-            entity.HasIndex(e => e.SteamId, "UQ_User_SteamId").IsUnique();
+            entity.HasIndex(e => e.SteamId, "UQ_User_SteamId")
+                .IsUnique()
+                .HasFilter("\"SteamId\" IS NOT NULL");
+
+            entity.HasIndex(e => e.Email, "UQ_User_Email")
+                .IsUnique()
+                .HasFilter("\"Email\" IS NOT NULL");
 
             entity.Property(e => e.SteamId).HasMaxLength(20);
         });
