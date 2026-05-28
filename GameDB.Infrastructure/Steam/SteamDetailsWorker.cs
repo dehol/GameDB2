@@ -43,7 +43,7 @@ public class SteamDetailsWorker : BackgroundService
                 }
 
                 Console.WriteLine($"Запуск обробки батчу на {appIds.Count} ігор...");
-                await syncService.ImportDetailsBatchAsync(appIds, _state, stoppingToken);
+                await syncService.ImportDetailsBatchAsync(appIds,_state, stoppingToken);
             }
             catch (Exception ex)
             {

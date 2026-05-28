@@ -20,5 +20,5 @@ public interface IGameRepository
 
     Task<Developer> GetOrCreateDeveloperAsync(string name);
     Task<Publisher> GetOrCreatePublisherAsync(string name);
-    Task<Genre> GetOrCreateGenreAsync(string steamGenreId, string name);
+    Task<Genre> GetOrCreateGenreAsync(string name);
 }

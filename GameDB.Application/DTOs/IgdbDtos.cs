@@ -19,7 +19,7 @@ public class IgdbGameDto
 }
 
 public class IgdbCover { public string? image_id { get; set; } }
-public class IgdbGenre { public string? name { get; set; } }
+public class IgdbGenre { public int? id { get; set; } public string? name { get; set; } }
 public class IgdbCompanyWrap 
 { 
     public IgdbCompany? company { get; set; } 
@@ -27,3 +27,5 @@ public class IgdbCompanyWrap
     public bool publisher { get; set; } // Флаг видавця
 }
 public class IgdbCompany { public string? name { get; set; } }
+
+public record ExternalGameDto(int? game);

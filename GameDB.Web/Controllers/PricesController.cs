@@ -87,7 +87,7 @@ public class PricesController : ControllerBase
                 {
                     // ЛОГУЄМО ПРОГРЕС ЗАГАЛЬНОГО ЦИКЛУ
                     bgLogger.LogInformation("📦 [SYNC] Беремо батч ігор: {Start} - {End} із {Total}", 
-                        skip + 1, Math.Min(skip + batchSize, totalGames), totalGames);
+                        skip, Math.Min(skip + batchSize, totalGames), totalGames);
 
                     var batch = await gameRepo.GetGamesBatchAsync(skip, batchSize);
 

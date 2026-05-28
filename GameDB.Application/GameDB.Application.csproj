@@ -19,5 +19,7 @@
 
   <ItemGroup>
     <Folder Include="Options\" />
+    <Folder Include="Services\ItadImport\" />
+    <Folder Include="Services\SteamImport\" />
   </ItemGroup>
 </Project>

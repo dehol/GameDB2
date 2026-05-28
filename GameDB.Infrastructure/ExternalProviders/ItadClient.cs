@@ -70,7 +70,8 @@ public class ItadClient : IItadClient
 
     public async Task<List<ItadPriceResponse>> GetPricesAsync(List<string> itadUuids, CancellationToken ct = default)
     {
-        var url = $"https://api.isthereanydeal.com/games/prices/v3?key={_apiKey}&country=UA";
+        // Додаємо nondeals=true, щоб ITAD повертав навіть ті ігри, на які зараз немає знижок.
+        var url = $"https://api.isthereanydeal.com/games/prices/v3?key={_apiKey}&country=UA&nondeals=true";
         var content = new StringContent(JsonSerializer.Serialize(itadUuids), Encoding.UTF8, "application/json");
 
         var response = await _httpClient.PostAsync(url, content, ct);

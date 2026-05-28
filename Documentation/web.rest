@@ -7,3 +7,21 @@ POST http://localhost:5295/api/steam/details/start
 POST http://localhost:5295/api/steam/details/stop
 ###
 GET http://localhost:5295/api/steam/details/status
+###
+GET https://api.isthereanydeal.com/games/info/v2?key=7bd712b455dc2e3762b376e9f2ea3a92ecddf983&id=01951b68-738a-73c4-a852-b75cac3b480a
+Content-Type: application/json
+
+[
+  "01905bf0-2870-729d-ae21-64681e63b089"
+]
+###
+POST https://id.twitch.tv/oauth2/token?client_id=5tbrr5lisv5uomqf69f7tu35qqpguv&client_secret=25ukjitxzg4kz0z2yimgekb31bylmw&grant_type=client_credentials
+###
+POST https://api.igdb.com/v4/games
+Client-ID: 5tbrr5lisv5uomqf69f7tu35qqpguv
+Authorization: Bearer o8b8xa6t4ip5i5mmxx3cb22csm43q7
+Content-Type: text/plain
+
+search "Brageskålen";
+fields name, summary, storyline, first_release_date, rating, rating_count, cover.image_id, genres.name, involved_companies.company.name, involved_companies.developer, involved_companies.publisher; 
+limit 1;

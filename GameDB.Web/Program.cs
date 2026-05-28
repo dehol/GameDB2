@@ -46,11 +46,20 @@ try
     // Стан та Воркер
     builder.Services.AddSingleton<SteamImportState>();
     builder.Services.AddHostedService<SteamDetailsWorker>();
+    // IGDB import state and worker
+    builder.Services.AddSingleton<IgdbImportState>();
+    builder.Services.AddSingleton<GameDB.Infrastructure.Igdb.IgdbRateLimiter>();
+    builder.Services.AddHostedService<GameDB.Infrastructure.Igdb.IgdbDetailsWorker>();
+    builder.Services.AddHttpClient<GameDB.Application.Interfaces.IIgdbClient, GameDB.Infrastructure.ExternalProviders.IgdbClient>();
 
     // Бізнес-логіка (Чиста Архітектура)
     builder.Services.AddSingleton<SteamGameFilter>();
     builder.Services.AddSingleton<GameMapper>();
     builder.Services.AddScoped<SteamImportService>();
+    // IGDB helpers
+    builder.Services.AddSingleton<IgdbGameMapper>();
+    builder.Services.AddScoped<FastIgdbImportService>();
+    builder.Services.AddScoped<ILookupRepository, GameDB.Infrastructure.Data.Repositories.LookupRepository>();
 
     builder.Services.Configure<SteamImportOptions>(builder.Configuration.GetSection("SteamImport"));
     // ---------------------------------
@@ -83,6 +92,7 @@ try
         state.IsImportingDetails = false;
         return Results.Ok(new { Message = "Фоновий процес МИTTЄВО зупинено." });
     });
+
     // ----------------------
     app.MapRazorPages();
     app.Run();

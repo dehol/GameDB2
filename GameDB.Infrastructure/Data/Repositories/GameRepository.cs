@@ -11,7 +11,9 @@ public sealed class GameRepository(AppDbContext db) : IGameRepository
         => db.Games.AsNoTracking().FirstOrDefaultAsync(g => g.GameId == gameId, ct);
 
     public Task<Game?> GetBySteamIdAsync(int steamAppId, CancellationToken ct = default)
-        => db.Games.FirstOrDefaultAsync(g => g.SteamAppId == steamAppId, ct);
+        => db.Games
+            .Include(g => g.Genres)
+            .FirstOrDefaultAsync(g => g.SteamAppId == steamAppId, ct);
 
     public async Task<HashSet<int>> GetExistingSteamAppIdsAsync(CancellationToken ct = default)
     {
@@ -37,6 +39,7 @@ public sealed class GameRepository(AppDbContext db) : IGameRepository
 
     public Task<List<Game>> GetGamesBatchAsync(int skip, int take, CancellationToken ct = default)
         => db.Games.AsNoTracking()
+            .Include(g => g.GameOffers)
             .OrderBy(g => g.GameId)
             .Skip(skip).Take(take)
             .ToListAsync(ct);
@@ -88,7 +91,7 @@ public sealed class GameRepository(AppDbContext db) : IGameRepository
         return dataEntity;
     }
 
-    public async Task<Genre> GetOrCreateGenreAsync(string steamGenreId, string name)
+    public async Task<Genre> GetOrCreateGenreAsync(string name)
     {
         await db.Database.ExecuteSqlRawAsync(
             "INSERT INTO \"Genre\" (\"Name\") VALUES ({0}) ON CONFLICT (\"Name\") DO NOTHING",

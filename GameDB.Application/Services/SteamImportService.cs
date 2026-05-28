@@ -61,7 +61,7 @@ public class SteamImportService
 
     public async Task ImportDetailsBatchAsync(List<int> appIdsToUpdate, SteamImportState state, CancellationToken ct = default)
     {
-        int backoffSeconds = _options.PauseAfterErrorMs/60000;
+        int backoffSeconds = 120 * 1000;
         int requestsSinceLastPause = 0; 
         
         // --- МЕТРИКИ БАТЧУ ---
@@ -112,6 +112,14 @@ public class SteamImportService
                     continue;
                 }
 
+                if(details.release_date == null)
+                {
+                    await _games.DeleteBySteamIdAsync(appId);
+                    deletedCount++;
+                    _logger.LogInformation("Видалено гру, яка ще не вийшла в реліз {AppId}: {Name} (Тип: {Type})", appId, details.name, details.type);
+                    continue;
+                }
+
                 if (!_filter.IsValidType(details.type))
                 {
                     await _games.DeleteBySteamIdAsync(appId);
@@ -141,7 +149,7 @@ public class SteamImportService
                     foreach (var steamGenre in details.genres)
                     {
                         if (string.IsNullOrEmpty(steamGenre.description)) continue;
-                        var genre = await _games.GetOrCreateGenreAsync(steamGenre.id!, steamGenre.description);
+                        var genre = await _games.GetOrCreateGenreAsync(steamGenre.description);
                         game.Genres.Add(genre);
                     }
                 }
@@ -149,7 +157,7 @@ public class SteamImportService
                 await _games.UpdateAsync(game);
                 updatedCount++;
 
-                backoffSeconds = _options.PauseAfterErrorMs/1000; 
+                backoffSeconds = 120 * 1000; 
                 await Task.Delay(_options.DelayBetweenRequestsMs, ct); 
             }
             catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
@@ -159,7 +167,7 @@ public class SteamImportService
                 
                 await Task.Delay(backoffSeconds, ct);
                 
-                backoffSeconds = Math.Min(backoffSeconds * 2, _options.PauseAfterErrorMs * 10);
+                backoffSeconds = 120 * 1000;
                 requestsSinceLastPause = 0; 
                 i--;
             }
