@@ -1,11 +1,14 @@
 using GameDB.Application.Interfaces;
 using GameDB.Application.Services;
+using GameDB.Web.Services;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace GameDB.Web.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
+[Authorize(Roles = AuthCookieService.AdminRole)]
 public class GamesController : ControllerBase
 {
     private readonly SteamImportService _steamImportService;

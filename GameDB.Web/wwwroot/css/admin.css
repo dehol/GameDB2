@@ -1,0 +1,101 @@
+.admin-page {
+    padding-bottom: 2rem;
+}
+
+.admin-stat-card {
+    background: #fff;
+    border: 1px solid #e9ecef;
+    border-radius: 0.5rem;
+    padding: 0.75rem 1rem;
+    height: 100%;
+}
+
+.admin-stat-label {
+    font-size: 0.75rem;
+    color: #6c757d;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.admin-stat-value {
+    font-size: 1.5rem;
+    font-weight: 700;
+    line-height: 1.2;
+}
+
+.admin-stat-ok .admin-stat-value { color: #198754; }
+.admin-stat-warn .admin-stat-value { color: #fd7e14; }
+.admin-stat-danger .admin-stat-value { color: #dc3545; }
+
+.admin-panel {
+    background: #fff;
+    border: 1px solid #e9ecef;
+    border-radius: 0.5rem;
+    padding: 1rem 1.25rem;
+    height: 100%;
+}
+
+.admin-panel-title {
+    font-weight: 600;
+    margin-bottom: 0.75rem;
+}
+
+.admin-job-status {
+    font-size: 0.8rem;
+    color: #495057;
+    padding: 0.35rem 0.5rem;
+    background: #f8f9fa;
+    border-radius: 0.25rem;
+    margin-top: 0.35rem;
+}
+
+.admin-job-status.running {
+    background: #d1e7dd;
+    color: #0f5132;
+}
+
+.admin-job-status.error {
+    background: #f8d7da;
+    color: #842029;
+}
+
+.admin-games-table th {
+    font-size: 0.8rem;
+    white-space: nowrap;
+}
+
+.admin-badge {
+    display: inline-block;
+    font-size: 0.7rem;
+    padding: 0.15rem 0.45rem;
+    border-radius: 0.25rem;
+    font-weight: 600;
+}
+
+.admin-badge-yes {
+    background: #d1e7dd;
+    color: #0f5132;
+}
+
+.admin-badge-no {
+    background: #f8d7da;
+    color: #842029;
+}
+
+.admin-toast {
+    position: fixed;
+    bottom: 1.5rem;
+    right: 1.5rem;
+    z-index: 1080;
+    max-width: 360px;
+    padding: 0.75rem 1rem;
+    border-radius: 0.5rem;
+    background: #212529;
+    color: #fff;
+    font-size: 0.875rem;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.admin-toast.error {
+    background: #dc3545;
+}

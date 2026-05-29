@@ -37,13 +37,15 @@ public class SteamDetailsWorker : BackgroundService
 
                 if (appIds.Count == 0)
                 {
-                    Console.WriteLine("Фоновий імпорт завершено. Всі ігри мають описи.");
                     _state.IsImportingDetails = false;
+                    _state.FinishedAt = DateTime.UtcNow;
+                    _state.LastMessage = "Усі ігри мають описи.";
                     continue;
                 }
 
-                Console.WriteLine($"Запуск обробки батчу на {appIds.Count} ігор...");
-                await syncService.ImportDetailsBatchAsync(appIds,_state, stoppingToken);
+                _state.LastBatchSize = appIds.Count;
+                _state.LastMessage = $"Обробка батчу: {appIds.Count} ігор…";
+                await syncService.ImportDetailsBatchAsync(appIds, _state, stoppingToken);
             }
             catch (Exception ex)
             {

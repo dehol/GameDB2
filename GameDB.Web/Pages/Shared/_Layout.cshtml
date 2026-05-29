@@ -24,6 +24,12 @@
                         <li class="nav-item">
                             <a class="nav-link text-dark" href="/Catalog">Каталог</a>
                         </li>
+                        @if (User.IsInRole("Admin"))
+                        {
+                            <li class="nav-item">
+                                <a class="nav-link text-dark fw-semibold" href="/Admin">Адмін</a>
+                            </li>
+                        }
                         @if (User.IsInRole("User"))
                         {
                             <li class="nav-item">

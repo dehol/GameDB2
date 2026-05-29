@@ -4,9 +4,11 @@ using Microsoft.AspNetCore.Authentication.Cookies;
 
 namespace GameDB.Web.Services;
 
-public sealed class AuthCookieService
+public sealed class AuthCookieService(AdminUserService adminUsers)
 {
     public const string GuestRole = "Guest";
+    public const string AdminRole = "Admin";
+
     public Task SignInUserAsync(HttpContext http, int userId, string username, bool persistent = false)
     {
         var claims = new List<Claim>
@@ -15,6 +17,9 @@ public sealed class AuthCookieService
             new(ClaimTypes.Name,           username),
             new(ClaimTypes.Role,           "User"),
         };
+
+        if (adminUsers.IsAdmin(userId))
+            claims.Add(new Claim(ClaimTypes.Role, AdminRole));
 
         var identity  = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
         var principal = new ClaimsPrincipal(identity);

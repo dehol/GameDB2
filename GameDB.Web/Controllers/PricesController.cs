@@ -1,5 +1,7 @@
 using GameDB.Application.Interfaces;
 using GameDB.Application.Services;
+using GameDB.Web.Services;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using GameDB.Domain.Entities;
 
@@ -59,6 +61,7 @@ public class PricesController : ControllerBase
     /// Ручний запуск повної синхронізації цін у фоновому режимі з детальними логами
     /// </summary>
     [HttpPost("sync")]
+    [Authorize(Roles = AuthCookieService.AdminRole)]
     public IActionResult TriggerPriceSync([FromQuery] int batchSize = 100)
     {
         if (batchSize <= 0 || batchSize > 200)

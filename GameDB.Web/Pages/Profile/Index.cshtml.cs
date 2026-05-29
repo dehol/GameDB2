@@ -13,15 +13,18 @@ public class IndexModel : PageModel
 {
     private readonly AuthService _auth;
     private readonly SteamPlayerService _steamPlayers;
+    private readonly AdminUserService _adminUsers;
 
-    public IndexModel(AuthService auth, SteamPlayerService steamPlayers)
+    public IndexModel(AuthService auth, SteamPlayerService steamPlayers, AdminUserService adminUsers)
     {
         _auth = auth;
         _steamPlayers = steamPlayers;
+        _adminUsers = adminUsers;
     }
 
     public UserProfileDto Profile { get; private set; } = null!;
     public SteamPlayerInfoDto? SteamInfo { get; private set; }
+    public bool IsAdmin { get; private set; }
 
     public async Task<IActionResult> OnGetAsync()
     {
@@ -33,6 +36,7 @@ public class IndexModel : PageModel
             return NotFound();
 
         Profile = profile;
+        IsAdmin = _adminUsers.IsAdmin(userId);
 
         if (!string.IsNullOrEmpty(profile.SteamId))
             SteamInfo = await _steamPlayers.GetPlayerAsync(profile.SteamId);

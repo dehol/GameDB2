@@ -1,6 +1,5 @@
 namespace GameDB.Application.Services;
 
-// ARCH-7 fix: volatile keyword ensures cross-thread visibility (ARM-safe)
 public sealed class SteamImportState
 {
     private volatile bool _isImportingDetails;
@@ -10,4 +9,10 @@ public sealed class SteamImportState
         get => _isImportingDetails;
         set => _isImportingDetails = value;
     }
+
+    public DateTime? StartedAt { get; set; }
+    public DateTime? FinishedAt { get; set; }
+    public int LastBatchSize { get; set; }
+    public string? LastMessage { get; set; }
+    public string? LastError { get; set; }
 }

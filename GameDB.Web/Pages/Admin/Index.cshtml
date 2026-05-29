@@ -1,0 +1,173 @@
+@page "/Admin"
+@model GameDB.Web.Pages.Admin.IndexModel
+@{
+    ViewData["Title"] = "Адмін-панель";
+}
+
+@section Styles {
+    <link rel="stylesheet" href="~/css/admin.css" asp-append-version="true" />
+}
+
+<div class="admin-page">
+    <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+        <div>
+            <h1 class="h3 mb-1">Адмін-панель</h1>
+            <p class="text-muted small mb-0">Імпорти, синхронізація цін і покриття даних по іграх</p>
+        </div>
+        <button type="button" class="btn btn-outline-secondary btn-sm" id="btnRefreshAll">
+            ↻ Оновити
+        </button>
+    </div>
+
+    <div class="row g-3 mb-4" id="statsCards">
+        <div class="col-md-4 col-lg-2">
+            <div class="admin-stat-card">
+                <div class="admin-stat-label">Всього ігор</div>
+                <div class="admin-stat-value" data-stat="total">—</div>
+            </div>
+        </div>
+        <div class="col-md-4 col-lg-2">
+            <div class="admin-stat-card admin-stat-ok">
+                <div class="admin-stat-label">З деталями</div>
+                <div class="admin-stat-value" data-stat="withDetails">—</div>
+            </div>
+        </div>
+        <div class="col-md-4 col-lg-2">
+            <div class="admin-stat-card admin-stat-warn">
+                <div class="admin-stat-label">Без деталей</div>
+                <div class="admin-stat-value" data-stat="withoutDetails">—</div>
+            </div>
+        </div>
+        <div class="col-md-4 col-lg-2">
+            <div class="admin-stat-card admin-stat-ok">
+                <div class="admin-stat-label">З ціною</div>
+                <div class="admin-stat-value" data-stat="withPrice">—</div>
+            </div>
+        </div>
+        <div class="col-md-4 col-lg-2">
+            <div class="admin-stat-card admin-stat-warn">
+                <div class="admin-stat-label">Без ціни</div>
+                <div class="admin-stat-value" data-stat="withoutPrice">—</div>
+            </div>
+        </div>
+        <div class="col-md-4 col-lg-2">
+            <div class="admin-stat-card admin-stat-danger">
+                <div class="admin-stat-label">Steam без ціни</div>
+                <div class="admin-stat-value" data-stat="steamNoPrice">—</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-3 mb-4">
+        <div class="col-lg-4">
+            <div class="admin-panel">
+                <h2 class="h6 admin-panel-title">Каталог Steam</h2>
+                <p class="small text-muted">Базовий список appid + назва з Steam Store API.</p>
+                <button type="button" class="btn btn-primary btn-sm w-100 mb-2" id="btnBasicImport">
+                    Імпорт нових ігор (basic)
+                </button>
+                <div id="basicImportResult" class="small text-muted"></div>
+            </div>
+        </div>
+
+        <div class="col-lg-4">
+            <div class="admin-panel">
+                <h2 class="h6 admin-panel-title">Деталі ігор</h2>
+                <p class="small text-muted mb-2">
+                    Черга без опису: <strong id="pendingDetails">—</strong>
+                </p>
+                <div class="d-flex gap-2 mb-2 flex-wrap">
+                    <button type="button" class="btn btn-success btn-sm flex-grow-1" id="btnDetailsSteam">
+                        ▶ Steam worker
+                    </button>
+                    <button type="button" class="btn btn-success btn-sm flex-grow-1" id="btnDetailsIgdb">
+                        ▶ IGDB worker
+                    </button>
+                </div>
+                <button type="button" class="btn btn-outline-danger btn-sm w-100" id="btnDetailsStop">
+                    ■ Зупинити деталі
+                </button>
+                <div class="admin-job-status mt-2" id="steamJobStatus"></div>
+                <div class="admin-job-status" id="igdbJobStatus"></div>
+            </div>
+        </div>
+
+        <div class="col-lg-4">
+            <div class="admin-panel">
+                <h2 class="h6 admin-panel-title">Ціни (ITAD)</h2>
+                <p class="small text-muted mb-2">
+                    Остання синхронізація: <span id="lastPriceSync">—</span>
+                </p>
+                <div class="input-group input-group-sm mb-2">
+                    <span class="input-group-text">Батч</span>
+                    <input type="number" class="form-control" id="priceBatchSize" value="100" min="1" max="200" />
+                </div>
+                <div class="d-flex gap-2 mb-2">
+                    <button type="button" class="btn btn-warning btn-sm flex-grow-1" id="btnPriceStart">
+                        ▶ Синхронізувати ціни
+                    </button>
+                    <button type="button" class="btn btn-outline-danger btn-sm" id="btnPriceStop">■</button>
+                </div>
+                <div class="admin-progress d-none" id="priceProgressWrap">
+                    <div class="progress" style="height: 8px;">
+                        <div class="progress-bar" id="priceProgressBar" style="width: 0%"></div>
+                    </div>
+                    <div class="small text-muted mt-1" id="priceProgressText"></div>
+                </div>
+                <div class="admin-job-status mt-2" id="priceJobStatus"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="admin-panel">
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+            <h2 class="h6 admin-panel-title mb-0">Покриття даних по іграх</h2>
+            <div class="d-flex gap-2 flex-wrap align-items-center">
+                <input type="search" class="form-control form-control-sm" id="gameSearch"
+                       placeholder="Назва або ID…" style="max-width: 200px;" />
+                <select class="form-select form-select-sm" id="gameFilter" style="max-width: 220px;">
+                    <option value="All">Усі ігри</option>
+                    <option value="NoDetails">Без деталей</option>
+                    <option value="HasDetails">З деталями</option>
+                    <option value="NoPrice">Без ціни</option>
+                    <option value="HasPrice">З ціною</option>
+                    <option value="SteamNoPrice">Steam appid, без ціни</option>
+                    <option value="NoSteamAppId">Без Steam AppId</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="table-responsive">
+            <table class="table table-sm table-hover admin-games-table align-middle mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>ID</th>
+                        <th>Назва</th>
+                        <th>Steam</th>
+                        <th>Деталі</th>
+                        <th>Ціна</th>
+                        <th>Синх. цін</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody id="gamesTableBody">
+                    <tr><td colspan="7" class="text-muted text-center py-4">Завантаження…</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="d-flex justify-content-between align-items-center mt-3 flex-wrap gap-2">
+            <span class="small text-muted" id="gamesPagerInfo">—</span>
+            <div class="btn-group btn-group-sm">
+                <button type="button" class="btn btn-outline-secondary" id="btnPrevPage" disabled>←</button>
+                <button type="button" class="btn btn-outline-secondary" id="btnNextPage" disabled>→</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="adminToast" class="admin-toast d-none" role="alert"></div>
+</div>
+
+@section Scripts {
+    <script src="~/js/admin.js" asp-append-version="true"></script>
+}

@@ -39,9 +39,13 @@ public class IgdbDetailsWorker : BackgroundService
                     if (appIds.Count == 0)
                     {
                         _state.IsImporting = false;
+                        _state.FinishedAt = DateTime.UtcNow;
+                        _state.LastMessage = "Усі ігри мають описи.";
                         break;
                     }
 
+                    _state.LastBatchSize = appIds.Count;
+                    _state.LastMessage = $"IGDB батч: {appIds.Count} ігор…";
                     await igdbService.ImportDetailsFastAsync(appIds, stoppingToken);
                 }
             }

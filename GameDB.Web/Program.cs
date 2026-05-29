@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.Extensions.Hosting;
 using Serilog;
 using GameDB.Application.Services;
@@ -53,6 +54,9 @@ try
     // Тільки зареєстровані (не гості)
     options.AddPolicy("RegisteredOnly", policy =>
         policy.RequireRole("User"));
+
+    options.AddPolicy("AdminOnly", policy =>
+        policy.RequireRole(GameDB.Web.Services.AuthCookieService.AdminRole));
 });
 
     // ── База даних ───────────────────────────────────────────────────────────
@@ -91,6 +95,11 @@ try
     builder.Services.AddScoped<IUserCollectionService, UserCollectionService>();
     builder.Services.AddScoped<IGameAlertRepository, GameAlertRepository>();
     builder.Services.AddScoped<IGameAlertService, GameAlertService>();
+    builder.Services.AddScoped<IAdminRepository, AdminRepository>();
+    builder.Services.AddScoped<IAdminService, AdminService>();
+    builder.Services.AddSingleton<PriceSyncState>();
+    builder.Services.AddSingleton<GameDB.Web.Services.AdminUserService>();
+    builder.Services.AddScoped<IClaimsTransformation, GameDB.Web.Services.AdminClaimsTransformation>();
     builder.Services.AddSingleton<GameDB.Web.Services.GameDescriptionSanitizer>();
     builder.Services.AddScoped<GameDB.Web.Services.AuthCookieService>();
     builder.Services.AddScoped<GameDB.Web.Services.SteamPlayerService>();
@@ -107,6 +116,8 @@ try
 
     // ── Налаштування ─────────────────────────────────────────────────────────
     builder.Services.Configure<SteamImportOptions>(builder.Configuration.GetSection("SteamImport"));
+    builder.Services.Configure<GameDB.Application.Options.AdminOptions>(
+        builder.Configuration.GetSection("Admin"));
 
     // ── Serilog ──────────────────────────────────────────────────────────────
     builder.Host.UseSerilog((context, services, configuration) => configuration
@@ -134,19 +145,6 @@ try
 
     app.MapControllers();
     app.MapRazorPages();
-
-    // Steam import API endpoints
-    app.MapPost("/api/steam/details/start", (SteamImportState state) =>
-    {
-        state.IsImportingDetails = true;
-        return Results.Ok(new { Message = "Фоновий процес запущено." });
-    }).RequireAuthorization();
-
-    app.MapPost("/api/steam/details/stop", (SteamImportState state) =>
-    {
-        state.IsImportingDetails = false;
-        return Results.Ok(new { Message = "Фоновий процес зупинено." });
-    }).RequireAuthorization();
 
     app.Run();
 }
