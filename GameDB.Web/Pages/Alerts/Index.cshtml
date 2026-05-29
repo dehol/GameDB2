@@ -1,0 +1,67 @@
+@page "/Alerts"
+@model GameDB.Web.Pages.Alerts.IndexModel
+@{
+    ViewData["Title"] = "Price alerts";
+}
+
+@section Styles {
+    <link rel="stylesheet" href="~/css/catalog.css" asp-append-version="true" />
+    <link rel="stylesheet" href="~/css/collections.css" asp-append-version="true" />
+}
+
+<h1 class="h3 mb-3">Price alerts</h1>
+
+@await Html.PartialAsync("_CollectionMessages")
+
+<p class="text-muted small mb-4">
+    Створюйте алерти на картках у <a href="/Catalog">каталозі</a> (🔔) або на <a href="/Catalog">сторінці гри</a>.
+</p>
+
+@if (Model.Items.Count == 0)
+{
+    <p class="text-muted">Активних алертів немає.</p>
+}
+else
+{
+    <div class="table-responsive">
+        <table class="table table-sm table-hover align-middle">
+            <thead class="table-light">
+                <tr>
+                    <th>Гра</th>
+                    <th>Ціль</th>
+                    <th>Зараз</th>
+                    <th>Статус</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var a in Model.Items)
+                {
+                    <tr>
+                        <td>
+                            <a href="/Catalog/Details/@a.GameId">@a.GameName</a>
+                        </td>
+                        <td>≤ @a.TargetPrice?.ToString("0.##") @a.Currency</td>
+                        <td>@(a.CurrentBestPrice?.ToString("0.##") ?? "—") @a.Currency</td>
+                        <td>
+                            @if (a.IsActive)
+                            {
+                                <span class="badge bg-success">Активний</span>
+                            }
+                            else
+                            {
+                                <span class="badge bg-secondary">Спрацював @a.TriggeredAt?.ToLocalTime().ToString("g")</span>
+                            }
+                        </td>
+                        <td class="text-end">
+                            <form method="post" asp-page-handler="Delete" class="d-inline">
+                                <input type="hidden" name="alertId" value="@a.AlertId" />
+                                <button type="submit" class="btn btn-outline-danger btn-sm">×</button>
+                            </form>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}

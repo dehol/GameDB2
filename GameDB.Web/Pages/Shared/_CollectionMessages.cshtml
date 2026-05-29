@@ -1,0 +1,8 @@
+@if (TempData["CollectionSuccess"] is string ok)
+{
+    <div class="alert alert-success alert-dismissible fade show">@ok<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
+}
+@if (TempData["CollectionError"] is string err)
+{
+    <div class="alert alert-danger alert-dismissible fade show">@err<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
+}

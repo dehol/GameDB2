@@ -1,0 +1,31 @@
+@model (int GameId, string Name, string? HeaderImage, double? Rating, decimal? BestFinalPrice, string? BestCurrency, int BestDiscount, DateTime AddedAt, string? ExtraLabel)
+
+<a href="/Catalog/Details/@Model.GameId" class="collection-card text-decoration-none text-dark">
+    @if (!string.IsNullOrEmpty(Model.HeaderImage))
+    {
+        <img src="@Model.HeaderImage" alt="@Model.Name" loading="lazy" />
+    }
+    else
+    {
+        <div class="game-card-img-placeholder">🎮</div>
+    }
+    <div class="collection-card-body">
+        <div class="fw-semibold small">@Model.Name</div>
+        @if (Model.Rating.HasValue)
+        {
+            <div class="text-warning small">⭐ @Model.Rating.Value.ToString("0")%</div>
+        }
+        @if (Model.BestFinalPrice.HasValue)
+        {
+            <div class="small mt-1">
+                @if (Model.BestDiscount > 0) { <span class="discount-badge">-@Model.BestDiscount%</span> }
+                <span class="price-current">@Model.BestFinalPrice.Value.ToString("0.##") @Model.BestCurrency</span>
+            </div>
+        }
+        @if (!string.IsNullOrEmpty(Model.ExtraLabel))
+        {
+            <div class="text-muted small mt-1">@Model.ExtraLabel</div>
+        }
+        <div class="text-muted small">Додано @Model.AddedAt.ToLocalTime().ToString("d")</div>
+    </div>
+</a>

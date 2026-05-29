@@ -37,7 +37,7 @@ public record CatalogFilterDto
     public bool? IsFree { get; init; }
 
     // Сортування
-    public CatalogSortBy SortBy   { get; init; } = CatalogSortBy.Rating;
+    public CatalogSortBy SortBy   { get; init; } = CatalogSortBy.Popularity;
     public bool          SortDesc { get; init; } = true;
 
     // Пагінація
@@ -50,6 +50,7 @@ public enum CatalogSortBy
     Name,
     ReleaseDate,
     Rating,
+    Popularity,
     Price,
     Discount,
     UpdatedAt

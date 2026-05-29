@@ -4,7 +4,7 @@ using GameDB.Domain.Entities;
 
 namespace GameDB.Infrastructure.Data.Repositories;
 
-public class AlertRepository
+public sealed class AlertRepository : IAlertRepository
 {
     private readonly AppDbContext _db;
 

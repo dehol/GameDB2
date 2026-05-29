@@ -22,8 +22,8 @@
                     </div>
                 }
 
-                <form method="post" action="/auth/register?returnUrl=@Model.ReturnUrl">
-                    @Html.AntiForgeryToken()
+                <form method="post">
+                    <input type="hidden" asp-for="ReturnUrl" />
                     <div class="mb-3">
                         <label asp-for="Input.Username" class="form-label">Ім'я користувача</label>
                         <input asp-for="Input.Username" class="form-control" autofocus />

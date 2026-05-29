@@ -1,0 +1,42 @@
+@page "/Library"
+@model GameDB.Web.Pages.Library.IndexModel
+@{
+    ViewData["Title"] = "Моя бібліотека";
+}
+
+@section Styles {
+    <link rel="stylesheet" href="~/css/catalog.css" asp-append-version="true" />
+    <link rel="stylesheet" href="~/css/collections.css" asp-append-version="true" />
+}
+
+<h1 class="h3 mb-3">Моя бібліотека</h1>
+
+@await Html.PartialAsync("_CollectionMessages")
+
+<div class="d-flex flex-wrap gap-2 mb-4">
+    <form method="post" asp-page-handler="ImportSteam">
+        <button type="submit" class="btn btn-dark btn-sm">Імпорт володінь з Steam</button>
+    </form>
+    <a href="/Catalog" class="btn btn-outline-secondary btn-sm">Додати з каталогу</a>
+</div>
+
+@if (Model.Items.Count == 0)
+{
+    <p class="text-muted">Бібліотека порожня. Додайте ігри зі <a href="/Catalog">сторінки гри</a> в каталозі або імпортуйте з Steam.</p>
+}
+else
+{
+    <div class="collection-grid">
+        @foreach (var item in Model.Items)
+        {
+            <div>
+                <partial name="_CollectionGameCard" model="(item.GameId, item.Name, item.HeaderImage, item.Rating, item.BestFinalPrice, item.BestCurrency, item.BestDiscount, item.AddedAt, item.ShopName)" />
+                <form method="post" asp-page-handler="Remove" class="mt-1">
+                    <input type="hidden" name="gameId" value="@item.GameId" />
+                    <input type="hidden" name="shopId" value="@item.ShopId" />
+                    <button type="submit" class="btn btn-outline-danger btn-sm w-100">Видалити</button>
+                </form>
+            </div>
+        }
+    </div>
+}

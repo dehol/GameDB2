@@ -1,0 +1,49 @@
+@model GameDB.Web.Pages.Shared.GameQuickActionsModel
+
+<div class="game-card-actions">
+    @if (Model.InWishlist)
+    {
+        @if (Model.UseDetailsRoute)
+        {
+            <form method="post" asp-page="/Catalog/Details" asp-route-id="@Model.GameId" asp-page-handler="RemoveWishlist" class="d-inline">
+                <button type="submit" class="btn btn-outline-secondary btn-sm">★ Wishlist</button>
+            </form>
+        }
+        else
+        {
+            <form method="post" asp-page="/Catalog/Index" asp-page-handler="RemoveWishlist" class="d-inline">
+                <input type="hidden" name="gameId" value="@Model.GameId" />
+                <input type="hidden" name="returnUrl" value="@Model.ReturnUrl" />
+                <button type="submit" class="btn btn-outline-secondary btn-sm py-0 px-1" title="У wishlist">★</button>
+            </form>
+        }
+    }
+    else
+    {
+        @if (Model.UseDetailsRoute)
+        {
+            <form method="post" asp-page="/Catalog/Details" asp-route-id="@Model.GameId" asp-page-handler="AddWishlist" class="d-inline">
+                <button type="submit" class="btn btn-outline-primary btn-sm">☆ Wishlist</button>
+            </form>
+        }
+        else
+        {
+            <form method="post" asp-page="/Catalog/Index" asp-page-handler="AddWishlist" class="d-inline">
+                <input type="hidden" name="gameId" value="@Model.GameId" />
+                <input type="hidden" name="returnUrl" value="@Model.ReturnUrl" />
+                <button type="submit" class="btn btn-outline-primary btn-sm py-0 px-1" title="В wishlist">☆</button>
+            </form>
+        }
+    }
+
+    @if (Model.UseDetailsRoute)
+    {
+        <button type="button" class="btn btn-warning btn-sm" data-bs-toggle="modal" data-bs-target="#priceAlertModal">
+            🔔 Price alert
+        </button>
+    }
+    else
+    {
+        <a href="/Catalog/Details/@Model.GameId?alert=true" class="btn btn-warning btn-sm py-0 px-1" title="Price alert">🔔</a>
+    }
+</div>

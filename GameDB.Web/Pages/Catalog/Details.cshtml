@@ -1,0 +1,199 @@
+@page "/Catalog/Details/{id:int}"
+@model GameDB.Web.Pages.Catalog.DetailsModel
+@{
+    var g = Model.Game;
+    ViewData["Title"] = g.Name;
+}
+
+@section Styles {
+    <link rel="stylesheet" href="~/css/catalog.css" asp-append-version="true" />
+    <link rel="stylesheet" href="~/css/collections.css" asp-append-version="true" />
+    <link rel="stylesheet" href="~/css/price-alert.css" asp-append-version="true" />
+}
+
+<nav aria-label="breadcrumb" class="mb-3">
+    <ol class="breadcrumb mb-0">
+        <li class="breadcrumb-item"><a href="/Catalog">Каталог</a></li>
+        <li class="breadcrumb-item active" aria-current="page">@g.Name</li>
+    </ol>
+</nav>
+
+<div class="game-detail-header">
+  @if (!string.IsNullOrEmpty(g.HeaderImage))
+  {
+    <img class="game-detail-cover" src="@g.HeaderImage" alt="@g.Name" />
+  }
+  else
+  {
+    <div class="game-detail-cover-placeholder">🎮</div>
+  }
+
+  <div class="game-detail-meta flex-grow-1">
+    <h1 class="h3 mb-2">@g.Name</h1>
+
+    @if (g.Rating.HasValue)
+    {
+      <p class="mb-2">
+        <span class="text-warning">⭐ @g.Rating.Value.ToString("0")%</span>
+        @if (g.RatingCount.HasValue)
+        {
+          <span class="text-muted">(@g.RatingCount.Value.ToString("N0") оцінок)</span>
+        }
+      </p>
+    }
+
+    <ul class="list-unstyled small text-muted mb-2">
+      @if (!string.IsNullOrEmpty(g.DeveloperName))
+      {
+        <li><strong>Розробник:</strong> @g.DeveloperName</li>
+      }
+      @if (!string.IsNullOrEmpty(g.PublisherName))
+      {
+        <li><strong>Видавець:</strong> @g.PublisherName</li>
+      }
+      @if (g.ReleaseDate.HasValue)
+      {
+        <li><strong>Дата виходу:</strong> @g.ReleaseDate.Value.ToString("d MMMM yyyy")</li>
+      }
+      @if (g.SteamAppId.HasValue)
+      {
+        <li><strong>Steam App ID:</strong> @g.SteamAppId</li>
+      }
+    </ul>
+
+    @if (g.Genres.Count > 0)
+    {
+      <div class="mb-3">
+        @foreach (var genre in g.Genres)
+        {
+          <span class="badge bg-secondary">@genre</span>
+        }
+      </div>
+    }
+
+    @if (Model.IsRegisteredUser && Model.Collection is not null)
+    {
+      var c = Model.Collection;
+      decimal? bestPrice = g.Offers.Count > 0
+          ? g.Offers.Min(o => o.FinalPrice ?? o.CurrentPrice)
+          : null;
+      <div class="game-actions-bar">
+        <partial name="_GameQuickActions" model="@(new GameDB.Web.Pages.Shared.GameQuickActionsModel(
+            g.GameId, c.InWishlist, bestPrice, $"/Catalog/Details/{g.GameId}", "/Catalog/Details", true))" />
+      </div>
+      @if (c.Alerts.Count > 0)
+      {
+        <div class="small text-muted mb-2">
+          Алерти:
+          @foreach (var a in c.Alerts)
+          {
+            <span class="badge @(a.IsActive ? "bg-warning text-dark" : "bg-secondary") me-1">
+              ≤@a.TargetPrice?.ToString("0.##") @a.Currency
+            </span>
+          }
+          <a href="/Alerts" class="ms-1">керувати</a>
+        </div>
+      }
+    }
+    else if (User.Identity?.IsAuthenticated == true)
+    {
+      <p class="small text-muted">Зареєструйтесь, щоб додавати в wishlist та price alerts.</p>
+    }
+    else
+    {
+      <p class="small text-muted"><a asp-page="/Auth/Login" asp-route-returnUrl="/Catalog/Details/@g.GameId">Увійдіть</a>, щоб зберігати ігри.</p>
+    }
+  </div>
+</div>
+
+@await Html.PartialAsync("_CollectionMessages")
+
+@if (!string.IsNullOrWhiteSpace(Model.SanitizedDescription))
+{
+  <section class="mb-4">
+    <h2 class="h5">Опис</h2>
+    <div class="game-description text-muted">@Html.Raw(Model.SanitizedDescription)</div>
+  </section>
+}
+
+<section>
+  <h2 class="h5 mb-3">Ціни в магазинах</h2>
+  @if (g.Offers.Count == 0)
+  {
+    <p class="text-muted">Немає доступних пропозицій.</p>
+  }
+  else
+  {
+    <div class="table-responsive">
+      <table class="table table-sm table-hover offers-table align-middle">
+        <thead class="table-light">
+          <tr>
+            <th>Магазин</th>
+            <th>Ціна</th>
+            <th>Знижка</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          @foreach (var offer in g.Offers)
+          {
+            var isFree = offer.FinalPrice == 0;
+            <tr>
+              <td>@offer.ShopName</td>
+              <td>
+                @if (isFree)
+                {
+                  <span class="price-free">Безкоштовно</span>
+                }
+                else if (offer.FinalPrice.HasValue)
+                {
+                  @if (offer.Discount > 0)
+                  {
+                    <span class="price-original me-1">@offer.CurrentPrice.ToString("0.##") @offer.Currency</span>
+                  }
+                  <span class="price-current">@offer.FinalPrice.Value.ToString("0.##") @offer.Currency</span>
+                }
+                else
+                {
+                  <span>@offer.CurrentPrice.ToString("0.##") @offer.Currency</span>
+                }
+              </td>
+              <td>
+                @if (offer.Discount > 0)
+                {
+                  <span class="discount-badge">-@offer.Discount%</span>
+                }
+                else
+                {
+                  <span class="text-muted">—</span>
+                }
+              </td>
+              <td class="text-end">
+                @if (!string.IsNullOrEmpty(offer.DownloadUrl))
+                {
+                  <a href="@offer.DownloadUrl" class="btn btn-sm btn-primary" target="_blank" rel="noopener">Перейти</a>
+                }
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  }
+</section>
+
+@if (Model.IsRegisteredUser && Model.AlertContext is not null)
+{
+  <partial name="_PriceAlertModal" model="Model.AlertContext" />
+}
+
+<p class="mt-4">
+  <a href="/Catalog" class="btn btn-outline-secondary btn-sm">← Назад до каталогу</a>
+</p>
+
+@section Scripts {
+  @if (Model.IsRegisteredUser && Model.AlertContext is not null)
+  {
+    <script src="~/js/price-alert.js" asp-append-version="true"></script>
+  }
+}

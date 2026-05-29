@@ -54,9 +54,15 @@ public partial class AppDbContext : DbContext
 
             entity.HasIndex(e => e.UserId, "IX_Alert_UserId");
 
+            entity.HasIndex(e => e.ShopId, "IX_Alert_ShopId");
+
+            entity.Property(e => e.AutoUpdateMode).HasMaxLength(20);
+
             entity.HasOne(d => d.Game).WithMany(p => p.Alerts).HasForeignKey(d => d.GameId);
 
             entity.HasOne(d => d.User).WithMany(p => p.Alerts).HasForeignKey(d => d.UserId);
+
+            entity.HasOne(d => d.Shop).WithMany().HasForeignKey(d => d.ShopId);
         });
 
         modelBuilder.Entity<Developer>(entity =>

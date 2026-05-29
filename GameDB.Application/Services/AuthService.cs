@@ -108,4 +108,57 @@ public class AuthService
         }
         return $"{candidate}_{Guid.NewGuid():N}"[..50];
     }
+
+    // ─── Профіль ────────────────────────────────────────────────────────────
+
+    public async Task<UserProfileDto?> GetProfileAsync(int userId)
+    {
+        var user = await _users.GetByIdAsync(userId);
+        if (user is null) return null;
+
+        return new UserProfileDto(
+            user.UserId,
+            user.Username,
+            user.Email,
+            user.SteamId,
+            !string.IsNullOrEmpty(user.PasswordHash),
+            user.CreatedAt,
+            user.LastLogin);
+    }
+
+    public async Task<AuthResultDto> LinkSteamAsync(int userId, string steamId)
+    {
+        var user = await _users.GetByIdAsync(userId);
+        if (user is null)
+            return AuthResultDto.Fail("Користувача не знайдено.");
+
+        if (!string.IsNullOrEmpty(user.SteamId))
+            return AuthResultDto.Fail("Steam вже прив'язано до цього акаунта.");
+
+        var taken = await _users.GetBySteamIdAsync(steamId);
+        if (taken is not null && taken.UserId != userId)
+            return AuthResultDto.Fail("Цей Steam-акаунт вже прив'язаний до іншого користувача.");
+
+        user.SteamId = steamId;
+        await _users.UpdateAsync(user);
+        return AuthResultDto.Ok(user.UserId, user.Username);
+    }
+
+    public async Task<AuthResultDto> UnlinkSteamAsync(int userId)
+    {
+        var user = await _users.GetByIdAsync(userId);
+        if (user is null)
+            return AuthResultDto.Fail("Користувача не знайдено.");
+
+        if (string.IsNullOrEmpty(user.SteamId))
+            return AuthResultDto.Fail("Steam не прив'язано.");
+
+        if (string.IsNullOrEmpty(user.PasswordHash))
+            return AuthResultDto.Fail(
+                "Неможливо відв'язати Steam без пароля. Спочатку додайте Email і пароль через реєстрацію.");
+
+        user.SteamId = null;
+        await _users.UpdateAsync(user);
+        return AuthResultDto.Ok(user.UserId, user.Username);
+    }
 }

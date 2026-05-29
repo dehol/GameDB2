@@ -1,0 +1,413 @@
+@page "/Catalog"
+@using GameDB.Application.DTOs
+@model GameDB.Web.Pages.Catalog.IndexModel
+@{
+    ViewData["Title"] = "Каталог ігор";
+    var m = Model;
+}
+
+@section Styles {
+    <link rel="stylesheet" href="~/css/catalog.css" asp-append-version="true" />
+    <link rel="stylesheet" href="~/css/collections.css" asp-append-version="true" />
+}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h1 class="h3 mb-0">Каталог ігор</h1>
+    <span class="text-muted small">@m.Result.TotalCount ігор</span>
+</div>
+
+@{
+    bool hasFilters = !string.IsNullOrWhiteSpace(m.Search) || m.Genres.Count > 0 ||
+                      m.DeveloperId.HasValue || m.PublisherId.HasValue || m.ShopId.HasValue ||
+                      m.MinPrice.HasValue || m.MaxPrice.HasValue || m.MinDiscount.HasValue ||
+                      m.YearFrom.HasValue || m.YearTo.HasValue || m.MinRating.HasValue || m.IsFree == true;
+}
+@if (hasFilters)
+{
+    <div class="active-filters">
+        @if (!string.IsNullOrWhiteSpace(m.Search))
+        {
+            <span class="filter-tag">🔍 "@m.Search" <a class="remove" href="@m.RemoveFilter("search")">×</a></span>
+        }
+        @foreach (var gid in m.Genres)
+        {
+            var gname = m.Sidebar.Genres.FirstOrDefault(g => g.GenreId == gid)?.Name ?? gid.ToString();
+            <span class="filter-tag">🎮 @gname <a class="remove" href="@m.RemoveGenre(gid)">×</a></span>
+        }
+        @if (m.DeveloperId.HasValue)
+        {
+            var dname = m.Sidebar.Developers.FirstOrDefault(d => d.DeveloperId == m.DeveloperId.Value)?.Name ?? "";
+            <span class="filter-tag">👨‍💻 @dname <a class="remove" href="@m.RemoveFilter("developerId")">×</a></span>
+        }
+        @if (m.PublisherId.HasValue)
+        {
+            var pname = m.Sidebar.Publishers.FirstOrDefault(p => p.PublisherId == m.PublisherId.Value)?.Name ?? "";
+            <span class="filter-tag">🏢 @pname <a class="remove" href="@m.RemoveFilter("publisherId")">×</a></span>
+        }
+        @if (m.ShopId.HasValue)
+        {
+            var sname = m.Sidebar.Shops.FirstOrDefault(s => s.ShopId == m.ShopId.Value)?.Name ?? "";
+            <span class="filter-tag">🛒 @sname <a class="remove" href="@m.RemoveFilter("shopId")">×</a></span>
+        }
+        @if (m.MinPrice.HasValue || m.MaxPrice.HasValue)
+        {
+            <span class="filter-tag">💰 @(m.MinPrice?.ToString("0.##") ?? "0")–@(m.MaxPrice?.ToString("0.##") ?? "∞")
+                <a class="remove" href="@m.RemoveFilters("minPrice", "maxPrice")">×</a></span>
+        }
+        @if (m.MinDiscount.HasValue)
+        {
+            <span class="filter-tag">🏷 ≥@m.MinDiscount%
+                <a class="remove" href="@m.RemoveFilter("minDiscount")">×</a></span>
+        }
+        @if (m.YearFrom.HasValue || m.YearTo.HasValue)
+        {
+            <span class="filter-tag">📅 @(m.YearFrom?.ToString() ?? "")–@(m.YearTo?.ToString() ?? "")
+                <a class="remove" href="@m.RemoveFilters("yearFrom", "yearTo")">×</a></span>
+        }
+        @if (m.MinRating.HasValue)
+        {
+            <span class="filter-tag">⭐ ≥@m.MinRating%
+                <a class="remove" href="@m.RemoveFilter("minRating")">×</a></span>
+        }
+        @if (m.IsFree == true)
+        {
+            <span class="filter-tag">🆓 Безкоштовні
+                <a class="remove" href="@m.RemoveFilter("isFree")">×</a></span>
+        }
+        <a href="/Catalog" class="filter-tag" style="background:#fff3cd;">✕ Скинути всі</a>
+    </div>
+}
+
+<div class="catalog-layout">
+    <aside class="catalog-sidebar">
+        <form method="get" id="filterForm" action="/Catalog">
+            <div class="sidebar-section">
+                <div class="section-title">Пошук</div>
+                <div class="input-group input-group-sm">
+                    <input type="text" name="search" class="form-control" placeholder="Назва гри..."
+                           value="@m.Search" />
+                    <button class="btn btn-outline-secondary" type="submit">🔍</button>
+                </div>
+            </div>
+
+            <input type="hidden" name="sortBy"   value="@m.SortBy" />
+            <input type="hidden" name="sortDesc" value="@m.SortDesc.ToString().ToLower()" />
+            <input type="hidden" name="page"     value="1" />
+            <input type="hidden" name="pageSize" value="@m.PageSize" />
+
+            @if (m.Sidebar.Genres.Count > 0)
+            {
+                <div class="sidebar-section">
+                    <div class="section-title">Жанри</div>
+                    <div class="genre-list-inner">
+                        @foreach (var genre in m.Sidebar.Genres)
+                        {
+                            <div class="form-check d-flex align-items-center">
+                                <input class="form-check-input filter-check" type="checkbox" name="genres"
+                                       value="@genre.GenreId" id="g@(genre.GenreId)"
+                                       @(m.Genres.Contains(genre.GenreId) ? "checked" : "") />
+                                <label class="form-check-label flex-grow-1" for="g@(genre.GenreId)">@genre.Name</label>
+                                <span class="genre-count">@genre.GameCount</span>
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
+
+            @if (m.Sidebar.Shops.Count > 0)
+            {
+                <div class="sidebar-section">
+                    <div class="section-title">Магазин</div>
+                    <select name="shopId" class="form-select form-select-sm filter-select">
+                        <option value="">Усі магазини</option>
+                        @foreach (var shop in m.Sidebar.Shops)
+                        {
+                            if (m.ShopId == shop.ShopId)
+                            {
+                                <option value="@shop.ShopId" selected>@shop.Name</option>
+                            }
+                            else
+                            {
+                                <option value="@shop.ShopId">@shop.Name</option>
+                            }
+                        }
+                    </select>
+                </div>
+            }
+
+            <div class="sidebar-section">
+                <div class="section-title">Ціна</div>
+                <div class="d-flex gap-2">
+                    <input type="number" name="minPrice" class="form-control form-control-sm"
+                           placeholder="Від" value="@m.MinPrice" min="0" step="0.01" />
+                    <input type="number" name="maxPrice" class="form-control form-control-sm"
+                           placeholder="До" value="@m.MaxPrice" min="0" step="0.01" />
+                </div>
+                <div class="form-check mt-2">
+                    <input class="form-check-input filter-check" type="checkbox" name="isFree" value="true"
+                           id="chkFree" @(m.IsFree == true ? "checked" : "") />
+                    <label class="form-check-label small" for="chkFree">Тільки безкоштовні</label>
+                </div>
+            </div>
+
+            <div class="sidebar-section">
+                <div class="section-title">Мін. знижка</div>
+                <select name="minDiscount" class="form-select form-select-sm filter-select">
+                    <option value="">Будь-яка</option>
+                    @foreach (var pct in new[] { 10, 25, 50, 75, 90 })
+                    {
+                        if (m.MinDiscount == pct)
+                        {
+                            <option value="@pct" selected>≥ @pct%</option>
+                        }
+                        else
+                        {
+                            <option value="@pct">≥ @pct%</option>
+                        }
+                    }
+                </select>
+            </div>
+
+            <div class="sidebar-section">
+                <div class="section-title">Мін. рейтинг</div>
+                <select name="minRating" class="form-select form-select-sm filter-select">
+                    <option value="">Будь-який</option>
+                    @foreach (var r in new[] { 50.0, 60.0, 70.0, 80.0, 90.0 })
+                    {
+                        if (m.MinRating == r)
+                        {
+                            <option value="@r" selected>≥ @r%</option>
+                        }
+                        else
+                        {
+                            <option value="@r">≥ @r%</option>
+                        }
+                    }
+                </select>
+            </div>
+
+            <div class="sidebar-section">
+                <div class="section-title">Рік випуску</div>
+                <div class="d-flex gap-2">
+                    <input type="number" name="yearFrom" class="form-control form-control-sm"
+                           placeholder="З" value="@m.YearFrom"
+                           min="@m.Sidebar.MinYear" max="@m.Sidebar.MaxYear" />
+                    <input type="number" name="yearTo" class="form-control form-control-sm"
+                           placeholder="По" value="@m.YearTo"
+                           min="@m.Sidebar.MinYear" max="@m.Sidebar.MaxYear" />
+                </div>
+            </div>
+
+            @if (m.Sidebar.Developers.Count > 0)
+            {
+                <div class="sidebar-section">
+                    <div class="section-title">Розробник</div>
+                    <select name="developerId" class="form-select form-select-sm filter-select">
+                        <option value="">Усі розробники</option>
+                        @foreach (var dev in m.Sidebar.Developers)
+                        {
+                            if (m.DeveloperId == dev.DeveloperId)
+                            {
+                                <option value="@dev.DeveloperId" selected>@dev.Name</option>
+                            }
+                            else
+                            {
+                                <option value="@dev.DeveloperId">@dev.Name</option>
+                            }
+                        }
+                    </select>
+                </div>
+            }
+
+            @if (m.Sidebar.Publishers.Count > 0)
+            {
+                <div class="sidebar-section">
+                    <div class="section-title">Видавець</div>
+                    <select name="publisherId" class="form-select form-select-sm filter-select">
+                        <option value="">Усі видавці</option>
+                        @foreach (var pub in m.Sidebar.Publishers)
+                        {
+                            if (m.PublisherId == pub.PublisherId)
+                            {
+                                <option value="@pub.PublisherId" selected>@pub.Name</option>
+                            }
+                            else
+                            {
+                                <option value="@pub.PublisherId">@pub.Name</option>
+                            }
+                        }
+                    </select>
+                </div>
+            }
+
+            <button type="submit" class="btn btn-primary btn-sm w-100">Застосувати</button>
+            <a href="/Catalog" class="btn btn-outline-secondary btn-sm w-100 mt-2">Скинути фільтри</a>
+        </form>
+    </aside>
+
+    <div class="catalog-main">
+        <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+            <div class="sort-bar">
+                <span class="text-muted small">Сортувати:</span>
+                @{
+                    string SortClass(CatalogSortBy s) => m.SortBy == s ? "sort-link active" : "sort-link";
+                    string SortArrow(CatalogSortBy s) => m.SortBy == s ? (m.SortDesc ? " ↓" : " ↑") : "";
+                }
+                <a href="@m.SortUrl(CatalogSortBy.Popularity)"  class="@SortClass(CatalogSortBy.Popularity)">Популярність@(SortArrow(CatalogSortBy.Popularity))</a>
+                <a href="@m.SortUrl(CatalogSortBy.Rating)"      class="@SortClass(CatalogSortBy.Rating)">Рейтинг@(SortArrow(CatalogSortBy.Rating))</a>
+                <a href="@m.SortUrl(CatalogSortBy.Price)"       class="@SortClass(CatalogSortBy.Price)">Ціна@(SortArrow(CatalogSortBy.Price))</a>
+                <a href="@m.SortUrl(CatalogSortBy.Discount)"    class="@SortClass(CatalogSortBy.Discount)">Знижка@(SortArrow(CatalogSortBy.Discount))</a>
+                <a href="@m.SortUrl(CatalogSortBy.ReleaseDate)" class="@SortClass(CatalogSortBy.ReleaseDate)">Дата@(SortArrow(CatalogSortBy.ReleaseDate))</a>
+                <a href="@m.SortUrl(CatalogSortBy.Name)"        class="@SortClass(CatalogSortBy.Name)">Назва@(SortArrow(CatalogSortBy.Name))</a>
+            </div>
+            <div class="text-muted small">
+                Показано @(((m.Result.Page - 1) * m.Result.PageSize) + 1)–@(Math.Min(m.Result.Page * m.Result.PageSize, m.Result.TotalCount))
+                з @m.Result.TotalCount
+            </div>
+        </div>
+
+        @await Html.PartialAsync("_CollectionMessages")
+
+        @if (m.Result.Items.Count == 0)
+        {
+            <div class="text-center py-5 text-muted">
+                <div style="font-size:3rem">🎮</div>
+                <p class="mt-2">Ігор за вашими фільтрами не знайдено.</p>
+                <a href="/Catalog" class="btn btn-outline-primary btn-sm">Скинути фільтри</a>
+            </div>
+        }
+        else
+        {
+            <div class="games-grid">
+                @foreach (var game in m.Result.Items)
+                {
+                    var returnUrl = m.CatalogReturnUrl();
+                    <div class="game-card-wrap">
+                        <a class="game-card" href="/Catalog/Details/@game.GameId">
+                            @if (!string.IsNullOrEmpty(game.HeaderImage))
+                            {
+                                <img class="game-card-img" src="@game.HeaderImage" alt="@game.Name" loading="lazy" />
+                            }
+                            else
+                            {
+                                <div class="game-card-img-placeholder">🎮</div>
+                            }
+                            <div class="game-card-body">
+                                <div class="game-card-name" title="@game.Name">@game.Name</div>
+                                @if (!string.IsNullOrEmpty(game.DeveloperName))
+                                {
+                                    <div class="game-card-developer">@game.DeveloperName</div>
+                                }
+                                @if (game.Genres.Count > 0)
+                                {
+                                    <div class="game-card-genres">
+                                        @foreach (var genre in game.Genres.Take(2))
+                                        {
+                                            <span class="badge bg-secondary me-1">@genre</span>
+                                        }
+                                        @if (game.Genres.Count > 2)
+                                        {
+                                            <span class="badge bg-light text-muted">+@(game.Genres.Count - 2)</span>
+                                        }
+                                    </div>
+                                }
+                                <div class="game-card-footer">
+                                    <div class="game-card-rating">
+                                        @if (game.Rating.HasValue)
+                                        {
+                                            <span>⭐ @game.Rating.Value.ToString("0")%</span>
+                                            @if (game.RatingCount.HasValue)
+                                            {
+                                                <span class="text-muted">(@game.RatingCount)</span>
+                                            }
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted">—</span>
+                                        }
+                                    </div>
+                                    <div class="game-card-price">
+                                        @if (game.IsFree)
+                                        {
+                                            <span class="price-free">Безкоштовно</span>
+                                        }
+                                        else if (game.BestFinalPrice.HasValue)
+                                        {
+                                            @if (game.BestDiscount > 0)
+                                            {
+                                                <div><span class="discount-badge">-@game.BestDiscount%</span></div>
+                                                <div><span class="price-original">@game.BestCurrentPrice?.ToString("0.##") @game.BestCurrency</span></div>
+                                            }
+                                            <span class="price-current">@game.BestFinalPrice.Value.ToString("0.##") @game.BestCurrency</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted small">Ціна невідома</span>
+                                        }
+                                    </div>
+                                </div>
+                            </div>
+                        </a>
+                        @if (m.IsRegisteredUser)
+                        {
+                            <partial name="_GameQuickActions" model="new GameDB.Web.Pages.Shared.GameQuickActionsModel(
+                                game.GameId,
+                                m.WishlistIds.Contains(game.GameId),
+                                game.BestFinalPrice,
+                                returnUrl,
+                                UseDetailsRoute: false)" />
+                        }
+                    </div>
+                }
+            </div>
+        }
+
+        @if (m.Result.TotalPages > 1)
+        {
+            <nav class="mt-4">
+                <ul class="pagination justify-content-center flex-wrap">
+                    @if (m.Result.Page > 1)
+                    {
+                        <li class="page-item">
+                            <a class="page-link" href="@m.PageUrl(m.Result.Page - 1)">‹</a>
+                        </li>
+                    }
+                    @{
+                        int startPage = Math.Max(1, m.Result.Page - 3);
+                        int endPage   = Math.Min(m.Result.TotalPages, m.Result.Page + 3);
+                    }
+                    @if (startPage > 1)
+                    {
+                        <li class="page-item"><a class="page-link" href="@m.PageUrl(1)">1</a></li>
+                        @if (startPage > 2) { <li class="page-item disabled"><span class="page-link">…</span></li> }
+                    }
+                    @for (int p = startPage; p <= endPage; p++)
+                    {
+                        <li class="page-item @(p == m.Result.Page ? "active" : "")">
+                            <a class="page-link" href="@m.PageUrl(p)">@p</a>
+                        </li>
+                    }
+                    @if (endPage < m.Result.TotalPages)
+                    {
+                        @if (endPage < m.Result.TotalPages - 1) { <li class="page-item disabled"><span class="page-link">…</span></li> }
+                        <li class="page-item"><a class="page-link" href="@m.PageUrl(m.Result.TotalPages)">@m.Result.TotalPages</a></li>
+                    }
+                    @if (m.Result.Page < m.Result.TotalPages)
+                    {
+                        <li class="page-item">
+                            <a class="page-link" href="@m.PageUrl(m.Result.Page + 1)">›</a>
+                        </li>
+                    }
+                </ul>
+            </nav>
+        }
+    </div>
+</div>
+
+@section Scripts {
+<script>
+    document.querySelectorAll('.filter-select, .filter-check').forEach(el => {
+        el.addEventListener('change', () => document.getElementById('filterForm').submit());
+    });
+</script>
+}

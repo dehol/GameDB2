@@ -1,0 +1,53 @@
+.price-alert-modal .modal-header {
+    border-bottom: 1px solid #dee2e6;
+    padding-bottom: 1rem;
+}
+.price-alert-game {
+    display: flex;
+    gap: 1rem;
+    align-items: flex-start;
+}
+.price-alert-game img {
+    width: 120px;
+    border-radius: 6px;
+    aspect-ratio: 460/215;
+    object-fit: cover;
+}
+.price-alert-stats {
+    font-size: .875rem;
+    color: #6c757d;
+}
+.price-alert-stats strong { color: #212529; }
+.price-alert-target-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .5rem;
+    align-items: center;
+    margin-bottom: 1rem;
+}
+.price-alert-target-row .input-group { max-width: 160px; }
+.price-alert-shortcuts {
+    background: #f8f9fa;
+    border-radius: 8px;
+    padding: .75rem;
+    margin-bottom: 1rem;
+}
+.price-alert-shortcuts h6 {
+    font-size: .75rem;
+    text-transform: uppercase;
+    color: #6c757d;
+    margin-bottom: .5rem;
+}
+.shortcut-group { margin-bottom: .75rem; }
+.shortcut-group:last-child { margin-bottom: 0; }
+.shortcut-group-title {
+    font-size: .8rem;
+    font-weight: 600;
+    margin-bottom: .35rem;
+}
+.shortcut-btns { display: flex; flex-wrap: wrap; gap: .35rem; }
+.shortcut-btns .btn { font-size: .75rem; padding: .2rem .5rem; }
+.price-alert-options {
+    border-top: 1px solid #dee2e6;
+    padding-top: 1rem;
+}

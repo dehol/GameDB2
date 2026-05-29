@@ -27,8 +27,8 @@
                 }
 
                 @* Email / пароль *@
-                <form method="post" action="/auth/login?returnUrl=@Model.ReturnUrl">
-                    @Html.AntiForgeryToken()
+                <form method="post">
+                    <input type="hidden" asp-for="ReturnUrl" />
                     <div class="mb-3">
                         <label asp-for="Input.Email" class="form-label">Email</label>
                         <input asp-for="Input.Email" class="form-control" type="email" autofocus />

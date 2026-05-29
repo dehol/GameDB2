@@ -1,0 +1,111 @@
+@page "/Profile"
+@model GameDB.Web.Pages.Profile.IndexModel
+@{
+    ViewData["Title"] = "Профіль";
+    var p = Model.Profile;
+    var steam = Model.SteamInfo;
+}
+
+<div class="row justify-content-center">
+    <div class="col-lg-8">
+        <h1 class="h3 mb-4">Профіль</h1>
+
+        @if (TempData["ProfileSuccess"] is string ok)
+        {
+            <div class="alert alert-success alert-dismissible fade show" role="alert">
+                @ok
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+        }
+        @if (TempData["ProfileError"] is string err)
+        {
+            <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                @err
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+        }
+
+        <div class="card mb-4">
+            <div class="card-body">
+                <h2 class="h5 card-title mb-3">Обліковий запис</h2>
+                <dl class="row mb-0 small">
+                    <dt class="col-sm-4">Ім'я користувача</dt>
+                    <dd class="col-sm-8">@p.Username</dd>
+
+                    <dt class="col-sm-4">Email</dt>
+                    <dd class="col-sm-8">@(p.Email ?? "—")</dd>
+
+                    <dt class="col-sm-4">Пароль</dt>
+                    <dd class="col-sm-8">@(p.HasPassword ? "Встановлено" : "Не встановлено (вхід лише через Steam)")</dd>
+
+                    <dt class="col-sm-4">Зареєстровано</dt>
+                    <dd class="col-sm-8">@p.CreatedAt.ToLocalTime().ToString("g")</dd>
+
+                    @if (p.LastLogin.HasValue)
+                    {
+                        <dt class="col-sm-4">Останній вхід</dt>
+                        <dd class="col-sm-8">@p.LastLogin.Value.ToLocalTime().ToString("g")</dd>
+                    }
+                </dl>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-body">
+                <h2 class="h5 card-title mb-3">Steam</h2>
+
+                @if (!string.IsNullOrEmpty(p.SteamId))
+                {
+                    <div class="d-flex align-items-center gap-3 mb-3">
+                        @if (!string.IsNullOrEmpty(steam?.AvatarUrl))
+                        {
+                            <img src="@steam.AvatarUrl" alt="" width="64" height="64" class="rounded" />
+                        }
+                        <div>
+                            @if (steam is not null)
+                            {
+                                <div class="fw-semibold">@steam.PersonaName</div>
+                                <a href="@steam.ProfileUrl" target="_blank" rel="noopener" class="small">
+                                    Відкрити профіль Steam ↗
+                                </a>
+                            }
+                            else
+                            {
+                                <div class="fw-semibold">Steam прив'язано</div>
+                                <a href="https://steamcommunity.com/profiles/@p.SteamId" target="_blank" rel="noopener" class="small">
+                                    Відкрити профіль ↗
+                                </a>
+                            }
+                            <div class="text-muted small mt-1">Steam ID: @p.SteamId</div>
+                        </div>
+                    </div>
+
+                    @if (p.HasPassword)
+                    {
+                        <form method="post" action="/auth/steam/unlink" class="d-inline"
+                              onsubmit="return confirm('Відв\'язати Steam від цього акаунта?');">
+                            @Html.AntiForgeryToken()
+                            <button type="submit" class="btn btn-outline-danger btn-sm">Відв'язати Steam</button>
+                        </form>
+                    }
+                    else
+                    {
+                        <p class="text-muted small mb-0">
+                            Цей акаунт увійшов через Steam. Щоб мати можливість відв'язати, спочатку додайте Email і пароль
+                            (окремий функціонал — поки недоступний).
+                        </p>
+                    }
+                }
+                else
+                {
+                    <p class="text-muted mb-3">
+                        Прив'яжіть Steam, щоб входити одним кліком і синхронізувати ідентифікатор з бібліотекою Steam.
+                    </p>
+                    <a href="/auth/steam/link" class="btn btn-dark btn-sm">
+                        Прив'язати Steam
+                    </a>
+                }
+            </div>
+        </div>
+    </div>
+</div>

@@ -79,6 +79,10 @@ public sealed class CatalogRepository : ICatalogRepository
             (CatalogSortBy.ReleaseDate, false) => query.OrderBy(g => g.ReleaseDate),
             (CatalogSortBy.Rating,      true)  => query.OrderByDescending(g => g.Rating ?? 0),
             (CatalogSortBy.Rating,      false) => query.OrderBy(g => g.Rating ?? 0),
+            (CatalogSortBy.Popularity,  true)  => query.OrderByDescending(g =>
+                (g.Rating ?? 0) * Math.Log10((g.RatingCount ?? 0) + 1)),
+            (CatalogSortBy.Popularity,  false) => query.OrderBy(g =>
+                (g.Rating ?? 0) * Math.Log10((g.RatingCount ?? 0) + 1)),
             (CatalogSortBy.Price,       true)  => query.OrderByDescending(g =>
                                                         g.GameOffers.Min(o => (decimal?)o.FinalPrice) ?? 999999),
             (CatalogSortBy.Price,       false) => query.OrderBy(g =>

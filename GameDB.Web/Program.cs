@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Hosting;
 using Serilog;
 using GameDB.Application.Services;
 using GameDB.Application.Options;
@@ -64,6 +65,9 @@ try
     builder.Services.AddScoped<IGameRepository, GameRepository>();
     builder.Services.AddScoped<ILookupRepository, LookupRepository>();
     builder.Services.AddScoped<ICatalogRepository, CatalogRepository>();
+    builder.Services.AddScoped<IUserCollectionRepository, UserCollectionRepository>();
+    builder.Services.AddScoped<IGameShopRepository, GameShopRepository>();
+    builder.Services.AddScoped<IAlertRepository, AlertRepository>();
 
     // ── Сервіси Auth ─────────────────────────────────────────────────────────
     builder.Services.AddScoped<AuthService>();
@@ -84,6 +88,13 @@ try
     builder.Services.AddScoped<FastIgdbImportService>();
     //
     builder.Services.AddScoped<ICatalogService, CatalogService>();
+    builder.Services.AddScoped<IUserCollectionService, UserCollectionService>();
+    builder.Services.AddScoped<IGameAlertRepository, GameAlertRepository>();
+    builder.Services.AddScoped<IGameAlertService, GameAlertService>();
+    builder.Services.AddSingleton<GameDB.Web.Services.GameDescriptionSanitizer>();
+    builder.Services.AddScoped<GameDB.Web.Services.AuthCookieService>();
+    builder.Services.AddScoped<GameDB.Web.Services.SteamPlayerService>();
+    builder.Services.AddHttpClient();
     
 
     // ── Background Workers ───────────────────────────────────────────────────
@@ -92,6 +103,7 @@ try
     builder.Services.AddSingleton<IgdbImportState>();
     builder.Services.AddSingleton<GameDB.Infrastructure.Igdb.IgdbRateLimiter>();
     builder.Services.AddHostedService<GameDB.Infrastructure.Igdb.IgdbDetailsWorker>();
+    builder.Services.AddHostedService<GameDB.Infrastructure.Services.AlertCheckerHostedService>();
 
     // ── Налаштування ─────────────────────────────────────────────────────────
     builder.Services.Configure<SteamImportOptions>(builder.Configuration.GetSection("SteamImport"));
@@ -137,6 +149,11 @@ try
     }).RequireAuthorization();
 
     app.Run();
+}
+catch (HostAbortedException)
+{
+    // Нормально при dotnet ef database update / migrations — design-time host
+    throw;
 }
 catch (Exception ex)
 {

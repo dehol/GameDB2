@@ -2,8 +2,10 @@ using System.Security.Claims;
 using GameDB.Application.DTOs.Auth;
 using GameDB.Application.Services;
 using GameDB.Infrastructure.Steam;
+using GameDB.Web.Services;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace GameDB.Web.Controllers;
@@ -13,59 +15,31 @@ public class AuthController : Controller
 {
     // Ім'я куки, що зберігає GuestId на пристрої (1 рік)
     private const string GuestDeviceCookie = "gamedb_guest_id";
+    private const string SteamLinkUserCookie = "gamedb_steam_link_uid";
     // Claim role для гостя — використовується в Policy
-    public const string GuestRole = "Guest";
+    public const string GuestRole = AuthCookieService.GuestRole;
 
     private readonly AuthService _auth;
+    private readonly AuthCookieService _cookies;
     private readonly SteamOpenIdService _steamOpenId;
+    private readonly SteamPlayerService _steamPlayers;
     private readonly IConfiguration _config;
 
-    public AuthController(AuthService auth, SteamOpenIdService steamOpenId, IConfiguration config)
+    public AuthController(
+        AuthService auth,
+        AuthCookieService cookies,
+        SteamOpenIdService steamOpenId,
+        SteamPlayerService steamPlayers,
+        IConfiguration config)
     {
         _auth = auth;
+        _cookies = cookies;
         _steamOpenId = steamOpenId;
+        _steamPlayers = steamPlayers;
         _config = config;
     }
 
-    // ─── Email реєстрація ───────────────────────────────────────────────────
-
-    [HttpPost("register")]
-    [ValidateAntiForgeryToken]
-    public async Task<IActionResult> Register(RegisterDto dto, string? returnUrl)
-    {
-        if (!ModelState.IsValid)
-            return View("~/Pages/Auth/Register.cshtml", dto);
-
-        var result = await _auth.RegisterAsync(dto);
-        if (!result.Success)
-        {
-            ModelState.AddModelError(string.Empty, result.Error!);
-            return View("~/Pages/Auth/Register.cshtml", dto);
-        }
-
-        await SignInAsync(result.UserId!.Value, result.Username!);
-        return LocalRedirect(returnUrl ?? "/");
-    }
-
-    // ─── Email логін ────────────────────────────────────────────────────────
-
-    [HttpPost("login")]
-    [ValidateAntiForgeryToken]
-    public async Task<IActionResult> Login(LoginDto dto, string? returnUrl)
-    {
-        if (!ModelState.IsValid)
-            return View("~/Pages/Auth/Login.cshtml", dto);
-
-        var result = await _auth.LoginAsync(dto);
-        if (!result.Success)
-        {
-            ModelState.AddModelError(string.Empty, result.Error!);
-            return View("~/Pages/Auth/Login.cshtml", dto);
-        }
-
-        await SignInAsync(result.UserId!.Value, result.Username!, dto.RememberMe);
-        return LocalRedirect(returnUrl ?? "/");
-    }
+    // Email реєстрація / логін — Pages/Auth/Register.cshtml, Login.cshtml (OnPost)
 
     // ─── Гостьовий вхід ─────────────────────────────────────────────────────
     // GuestId береться з куки пристрою (або генерується новий і зберігається на рік).
@@ -77,25 +51,8 @@ public class AuthController : Controller
     {
         var guestId = GetOrCreateGuestDeviceId();
 
-        var claims = new List<Claim>
-        {
-            new(ClaimTypes.NameIdentifier, $"guest_{guestId}"),
-            new(ClaimTypes.Name,           "Гість"),
-            new(ClaimTypes.Role,           GuestRole),
-            new("GuestId",                 guestId),
-        };
-
-        var identity  = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
-        var principal = new ClaimsPrincipal(identity);
-
-        // Auth-кука — сесійна (закривається з браузером).
-        // GuestId-кука на пристрої — постійна (1 рік).
-        await HttpContext.SignInAsync(
-            CookieAuthenticationDefaults.AuthenticationScheme,
-            principal,
-            new AuthenticationProperties { IsPersistent = false });
-
-        return LocalRedirect(returnUrl ?? "/");
+        await _cookies.SignInGuestAsync(HttpContext, guestId);
+        return LocalRedirect(returnUrl ?? "/Catalog");
     }
 
     // ─── Вихід ──────────────────────────────────────────────────────────────
@@ -113,16 +70,50 @@ public class AuthController : Controller
     [HttpGet("steam/login")]
     public IActionResult SteamLogin(string? returnUrl)
     {
+        Response.Cookies.Delete(SteamLinkUserCookie);
+
         if (!string.IsNullOrEmpty(returnUrl))
             Response.Cookies.Append("auth_return_url", returnUrl,
                 new CookieOptions { HttpOnly = true, SameSite = SameSiteMode.Lax, MaxAge = TimeSpan.FromMinutes(10) });
 
-        var callbackUrl = _config["Steam:OpenId:ReturnUrl"]
-            ?? $"{Request.Scheme}://{Request.Host}/auth/steam/callback";
-        var realm = _config["Steam:OpenId:Realm"]
-            ?? $"{Request.Scheme}://{Request.Host}";
+        return Redirect(BuildSteamOpenIdUrl());
+    }
 
-        return Redirect(_steamOpenId.BuildRedirectUrl(callbackUrl, realm));
+    /// <summary>Прив'язка Steam до вже авторизованого акаунта (email/пароль).</summary>
+    [HttpGet("steam/link")]
+    [Authorize(Roles = "User")]
+    public IActionResult SteamLink()
+    {
+        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrEmpty(userId))
+            return RedirectToPage("/Auth/Login");
+
+        Response.Cookies.Append(SteamLinkUserCookie, userId, new CookieOptions
+        {
+            HttpOnly  = true,
+            SameSite  = SameSiteMode.Lax,
+            MaxAge    = TimeSpan.FromMinutes(10),
+            IsEssential = true,
+        });
+
+        return Redirect(BuildSteamOpenIdUrl());
+    }
+
+    [HttpPost("steam/unlink")]
+    [Authorize(Roles = "User")]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> SteamUnlink()
+    {
+        if (!TryGetUserId(out var userId))
+            return RedirectToPage("/Auth/Login");
+
+        var result = await _auth.UnlinkSteamAsync(userId);
+        if (!result.Success)
+            TempData["ProfileError"] = result.Error;
+        else
+            TempData["ProfileSuccess"] = "Steam успішно відв'язано.";
+
+        return LocalRedirect("/Profile");
     }
 
     // ─── Steam OpenID: крок 2 — колбек від Steam ────────────────────────────
@@ -139,8 +130,30 @@ public class AuthController : Controller
             return RedirectToPage("/Auth/Login");
         }
 
-        var steamName = await TryGetSteamNameAsync(steamId);
-        var result    = await _auth.LoginOrRegisterViaSteamAsync(steamId, steamName);
+        // Режим прив'язки Steam до існуючого акаунта
+        if (Request.Cookies.TryGetValue(SteamLinkUserCookie, out var linkUserId)
+            && int.TryParse(linkUserId, out var uid))
+        {
+            Response.Cookies.Delete(SteamLinkUserCookie);
+
+            if (!TryGetUserId(out var currentUserId) || currentUserId != uid)
+            {
+                TempData["AuthError"] = "Сесія закінчилась. Увійдіть знову та повторіть прив'язку Steam.";
+                return RedirectToPage("/Auth/Login");
+            }
+
+            var linkResult = await _auth.LinkSteamAsync(uid, steamId);
+            if (!linkResult.Success)
+                TempData["ProfileError"] = linkResult.Error;
+            else
+                TempData["ProfileSuccess"] = "Steam успішно прив'язано.";
+
+            return LocalRedirect("/Profile");
+        }
+
+        var steamPlayer = await _steamPlayers.GetPlayerAsync(steamId);
+        var steamName   = steamPlayer?.PersonaName;
+        var result      = await _auth.LoginOrRegisterViaSteamAsync(steamId, steamName);
 
         if (!result.Success)
         {
@@ -148,36 +161,14 @@ public class AuthController : Controller
             return RedirectToPage("/Auth/Login");
         }
 
-        await SignInAsync(result.UserId!.Value, result.Username!);
+        await _cookies.SignInUserAsync(HttpContext, result.UserId!.Value, result.Username!);
 
         var returnUrl = Request.Cookies["auth_return_url"];
         Response.Cookies.Delete("auth_return_url");
-        return LocalRedirect(returnUrl ?? "/");
+        return LocalRedirect(returnUrl ?? "/Catalog");
     }
 
     // ─── Допоміжні ──────────────────────────────────────────────────────────
-
-    private async Task SignInAsync(int userId, string username, bool persistent = false)
-    {
-        var claims = new List<Claim>
-        {
-            new(ClaimTypes.NameIdentifier, userId.ToString()),
-            new(ClaimTypes.Name,           username),
-            new(ClaimTypes.Role,           "User"),
-        };
-
-        var identity  = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
-        var principal = new ClaimsPrincipal(identity);
-
-        await HttpContext.SignInAsync(
-            CookieAuthenticationDefaults.AuthenticationScheme,
-            principal,
-            new AuthenticationProperties
-            {
-                IsPersistent = persistent,
-                ExpiresUtc   = persistent ? DateTimeOffset.UtcNow.AddDays(30) : null,
-            });
-    }
 
     /// <summary>
     /// Читає GuestId з куки пристрою або генерує новий і зберігає на 1 рік.
@@ -199,22 +190,19 @@ public class AuthController : Controller
         return newId;
     }
 
-    private async Task<string?> TryGetSteamNameAsync(string steamId)
+    private string BuildSteamOpenIdUrl()
     {
-        var apiKey = _config["Steam:ApiKey"];
-        if (string.IsNullOrWhiteSpace(apiKey)) return null;
+        var callbackUrl = _config["Steam:OpenId:ReturnUrl"]
+            ?? $"{Request.Scheme}://{Request.Host}/auth/steam/callback";
+        var realm = _config["Steam:OpenId:Realm"]
+            ?? $"{Request.Scheme}://{Request.Host}";
+        return _steamOpenId.BuildRedirectUrl(callbackUrl, realm);
+    }
 
-        try
-        {
-            using var http = new HttpClient();
-            var url  = $"https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v2/?key={apiKey}&steamids={steamId}";
-            var json = await http.GetStringAsync(url);
-            var start = json.IndexOf("\"personaname\":\"", StringComparison.Ordinal);
-            if (start < 0) return null;
-            start += 15;
-            var end = json.IndexOf('"', start);
-            return end > start ? json[start..end] : null;
-        }
-        catch { return null; }
+    private bool TryGetUserId(out int userId)
+    {
+        userId = 0;
+        var raw = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        return !string.IsNullOrEmpty(raw) && int.TryParse(raw, out userId);
     }
 }
