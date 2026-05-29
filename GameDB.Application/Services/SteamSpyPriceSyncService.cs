@@ -1,3 +1,5 @@
+using System.Collections.Concurrent;
+using System.Diagnostics;
 using GameDB.Application.Interfaces;
 using GameDB.Application.Options;
 using GameDB.Domain.Entities;
@@ -8,10 +10,13 @@ namespace GameDB.Application.Services;
 
 public sealed class SteamSpyPriceSyncService(
     ISteamSpyClient steamSpy,
+    IGameOfferRepository offerRepository,
     PriceManagerService priceManager,
+    PriceSyncState priceState,
     ILogger<SteamSpyPriceSyncService> logger,
     IOptions<SteamSpyImportOptions> options)
 {
+    private const int SteamShopId = 1;
     private readonly SteamSpyImportOptions _options = options.Value;
 
     public async Task SyncPricesBatchAsync(IReadOnlyCollection<Game> games, CancellationToken ct = default)
@@ -23,52 +28,93 @@ public sealed class SteamSpyPriceSyncService(
             return;
         }
 
+        var metrics = new ImportBatchMetrics();
+        var stopwatch = Stopwatch.StartNew();
+        var gameIds = validGames.Select(g => g.GameId).ToList();
+        var existingOffers = await offerRepository.GetOffersByGameIdsAsync(gameIds, SteamShopId, ct);
+        var newOffers = new List<GameOffer>();
+        var concurrency = Math.Max(1, _options.PriceSyncConcurrency);
+        using var semaphore = new SemaphoreSlim(concurrency, concurrency);
+
         logger.LogInformation("SteamSpy prices: syncing {Count} games", validGames.Count);
 
-        int updated = 0;
-        int skipped = 0;
+        var tasks = validGames.Select(game => SyncSingleGameAsync(
+            game, existingOffers, newOffers, metrics, semaphore, ct));
 
-        foreach (var game in validGames)
+        await Task.WhenAll(tasks);
+
+        if (newOffers.Count > 0)
+            await offerRepository.AddRangeAsync(newOffers, ct);
+
+        await offerRepository.SaveBatchAsync(ct);
+
+        stopwatch.Stop();
+        priceState.RecordBatch(metrics, stopwatch.Elapsed);
+        logger.LogInformation(
+            "SteamSpy price sync batch: {Summary} elapsed={Elapsed:mm\\:ss}",
+            metrics.ToSummary(), stopwatch.Elapsed);
+    }
+
+    private async Task SyncSingleGameAsync(
+        Game game,
+        Dictionary<int, GameOffer> existingOffers,
+        List<GameOffer> newOffers,
+        ImportBatchMetrics metrics,
+        SemaphoreSlim semaphore,
+        CancellationToken ct)
+    {
+        if (ct.IsCancellationRequested)
+            return;
+
+        var appId = game.SteamAppId!.Value;
+        await semaphore.WaitAsync(ct);
+        try
         {
-            if (ct.IsCancellationRequested) break;
-
-            var appId = game.SteamAppId!.Value;
-            try
+            var spy = await steamSpy.GetAppDetailsAsync(appId, ct);
+            if (spy is null || !TryParsePrice(spy.InitialPrice ?? spy.Price, out var regularPrice))
             {
-                var spy = await steamSpy.GetAppDetailsAsync(appId, ct);
-                if (spy is null || !TryParsePrice(spy.InitialPrice ?? spy.Price, out var regularPrice))
-                {
-                    skipped++;
-                    continue;
-                }
+                lock (metrics) { metrics.SkippedCount++; }
+                return;
+            }
 
-                short discount = 0;
-                if (short.TryParse(spy.Discount, out var d))
-                    discount = d;
+            short discount = 0;
+            if (short.TryParse(spy.Discount, out var d))
+                discount = d;
 
-                await priceManager.ProcessPriceUpdateAsync(
+            lock (newOffers)
+            {
+                priceManager.StagePriceUpdate(
+                    existingOffers,
+                    newOffers,
                     gameId: game.GameId,
-                    shopId: 1,
+                    shopId: SteamShopId,
                     newPrice: regularPrice,
                     newDiscount: discount,
                     currency: "USD",
                     externalId: appId.ToString(),
-                    downloadUrl: $"https://store.steampowered.com/app/{appId}/",
-                    ct: ct);
-
-                updated++;
-            }
-            catch (Exception ex)
-            {
-                logger.LogError(ex, "SteamSpy price sync failed for AppId {AppId}", appId);
+                    downloadUrl: $"https://store.steampowered.com/app/{appId}/");
             }
 
-            await Task.Delay(_options.DelayBetweenRequestsMs, ct);
+            lock (metrics) { metrics.SuccessCount++; }
         }
-
-        logger.LogInformation(
-            "SteamSpy price sync complete: updated={Updated}, skipped={Skipped}, total={Total}",
-            updated, skipped, validGames.Count);
+        catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
+        {
+            lock (metrics)
+            {
+                metrics.RateLimitCount++;
+                metrics.ErrorCount++;
+            }
+            logger.LogWarning(ex, "SteamSpy 429 price sync for AppId {AppId}", appId);
+        }
+        catch (Exception ex)
+        {
+            lock (metrics) { metrics.ErrorCount++; }
+            logger.LogError(ex, "SteamSpy price sync failed for AppId {AppId}", appId);
+        }
+        finally
+        {
+            semaphore.Release();
+        }
     }
 
     private static bool TryParsePrice(string? priceCents, out decimal price)

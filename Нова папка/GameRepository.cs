@@ -24,24 +24,6 @@ public sealed class GameRepository(AppDbContext db) : IGameRepository
             .Include(g => g.Tags)
             .FirstOrDefaultAsync(g => g.SteamAppId == steamAppId, ct);
 
-    public async Task<Dictionary<int, Game>> GetBySteamIdsAsync(
-        IReadOnlyList<int> steamAppIds,
-        CancellationToken ct = default)
-    {
-        if (steamAppIds.Count == 0)
-            return [];
-
-        var ids = steamAppIds.Distinct().ToList();
-        var games = await db.Games
-            .AsNoTracking()
-            .Include(g => g.Genres)
-            .Include(g => g.Tags)
-            .Where(g => g.SteamAppId != null && ids.Contains(g.SteamAppId.Value))
-            .ToListAsync(ct);
-
-        return games.ToDictionary(g => g.SteamAppId!.Value);
-    }
-
     public async Task<HashSet<int>> GetExistingSteamAppIdsAsync(CancellationToken ct = default)
     {
         var ids = await db.Games

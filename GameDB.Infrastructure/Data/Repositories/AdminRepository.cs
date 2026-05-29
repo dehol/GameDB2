@@ -6,11 +6,23 @@ namespace GameDB.Infrastructure.Data.Repositories;
 
 public sealed class AdminRepository(AppDbContext db) : IAdminRepository
 {
+    private static IQueryable<Domain.Entities.Game> WithMetadata(IQueryable<Domain.Entities.Game> q)
+        => q.Where(g => g.SteamAppId != null &&
+                        g.DeveloperId != null &&
+                        g.Genres.Any() &&
+                        g.Rating != null);
+
+    private static IQueryable<Domain.Entities.Game> WithoutMetadata(IQueryable<Domain.Entities.Game> q)
+        => q.Where(g => g.SteamAppId != null &&
+                        (g.DeveloperId == null ||
+                         !g.Genres.Any() ||
+                         g.Rating == null));
+
     public async Task<AdminStatsDto> GetStatsAsync(CancellationToken ct = default)
     {
         var total = await db.Games.CountAsync(ct);
-        var withDetails = await db.Games.CountAsync(
-            g => g.Description != null && g.Description != "", ct);
+        var withDetails = await WithMetadata(db.Games).CountAsync(ct);
+        var withoutDetails = await WithoutMetadata(db.Games).CountAsync(ct);
         var withSteam = await db.Games.CountAsync(g => g.SteamAppId != null, ct);
         var withPrice = await db.Games.CountAsync(g => g.GameOffers.Any(), ct);
         var steamNoPrice = await db.Games.CountAsync(
@@ -20,7 +32,7 @@ public sealed class AdminRepository(AppDbContext db) : IAdminRepository
         return new AdminStatsDto(
             TotalGames: total,
             WithDetails: withDetails,
-            WithoutDetails: total - withDetails,
+            WithoutDetails: withoutDetails,
             WithSteamAppId: withSteam,
             WithPrice: withPrice,
             WithoutPrice: total - withPrice,
@@ -29,10 +41,7 @@ public sealed class AdminRepository(AppDbContext db) : IAdminRepository
     }
 
     public Task<int> CountWithoutDetailsAsync(CancellationToken ct = default)
-        => db.Games.CountAsync(
-            g => g.SteamAppId != null &&
-                 (g.Description == null || g.Description == ""),
-            ct);
+        => WithoutMetadata(db.Games).CountAsync(ct);
 
     public async Task<AdminGameListDto> GetGamesAsync(
         AdminGameCoverageFilter filter,
@@ -57,10 +66,8 @@ public sealed class AdminRepository(AppDbContext db) : IAdminRepository
 
         q = filter switch
         {
-            AdminGameCoverageFilter.NoDetails => q.Where(g =>
-                g.Description == null || g.Description == ""),
-            AdminGameCoverageFilter.HasDetails => q.Where(g =>
-                g.Description != null && g.Description != ""),
+            AdminGameCoverageFilter.NoDetails => WithoutMetadata(q),
+            AdminGameCoverageFilter.HasDetails => WithMetadata(q),
             AdminGameCoverageFilter.NoPrice => q.Where(g => !g.GameOffers.Any()),
             AdminGameCoverageFilter.HasPrice => q.Where(g => g.GameOffers.Any()),
             AdminGameCoverageFilter.NoSteamAppId => q.Where(g => g.SteamAppId == null),
@@ -79,7 +86,10 @@ public sealed class AdminRepository(AppDbContext db) : IAdminRepository
                 g.GameId,
                 g.Name,
                 g.SteamAppId,
-                g.Description != null && g.Description != "",
+                g.SteamAppId != null &&
+                    g.DeveloperId != null &&
+                    g.Genres.Any() &&
+                    g.Rating != null,
                 g.GameOffers.Any(),
                 g.GameOffers.Max(o => o.LastSyncedAt),
                 g.Rating))

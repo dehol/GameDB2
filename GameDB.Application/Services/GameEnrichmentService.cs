@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using GameDB.Application.Interfaces;
 using GameDB.Application.Options;
 using Microsoft.Extensions.Logging;
@@ -8,9 +9,7 @@ namespace GameDB.Application.Services;
 public sealed class GameEnrichmentService(
     IGameRepository games,
     ISteamSpyClient steamSpy,
-    IIgdbClient igdbClient,
     SteamSpyGameMapper steamSpyMapper,
-    IgdbDescriptionMapper descriptionMapper,
     ILogger<GameEnrichmentService> logger,
     IOptions<SteamSpyImportOptions> options)
 {
@@ -18,63 +17,96 @@ public sealed class GameEnrichmentService(
 
     public async Task ImportBatchAsync(
         List<int> appIds,
-        GameEnrichmentImportState state,
+        GameEnrichmentImportState importState,
+        SteamSpyLookupCache lookupCache,
         CancellationToken ct = default)
     {
-        var overwriteExisting = state.OverwriteExisting;
-        foreach (var appId in appIds)
-        {
-            if (ct.IsCancellationRequested || !state.IsImporting)
-                break;
+        var overwriteExisting = importState.OverwriteExisting;
+        var metrics = new ImportBatchMetrics();
+        var updatedGames = new ConcurrentBag<Domain.Entities.Game>();
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        var gamesBySteamId = await games.GetBySteamIdsAsync(appIds, ct);
+        var concurrency = Math.Max(1, _options.EnrichmentConcurrency);
+        using var semaphore = new SemaphoreSlim(concurrency, concurrency);
 
-            try
-            {
-                await EnrichSingleGameAsync(appId, overwriteExisting, ct);
-                await Task.Delay(_options.DelayBetweenRequestsMs, ct);
-            }
-            catch (Exception ex)
-            {
-                logger.LogError(ex, "Помилка збагачення гри Steam AppId {AppId}", appId);
-            }
-        }
+        var tasks = appIds.Select(appId => ProcessAppAsync(
+            appId,
+            overwriteExisting,
+            importState,
+            lookupCache,
+            gamesBySteamId,
+            updatedGames,
+            metrics,
+            semaphore,
+            ct));
+
+        await Task.WhenAll(tasks);
+
+        if (updatedGames.Count > 0)
+            await games.UpdateBatchAsync(updatedGames.ToList(), ct);
+
+        stopwatch.Stop();
+        importState.RecordBatch(metrics, stopwatch.Elapsed);
+        logger.LogInformation(
+            "Enrichment batch done: {Summary} elapsed={Elapsed:mm\\:ss}",
+            metrics.ToSummary(), stopwatch.Elapsed);
     }
 
-    private async Task EnrichSingleGameAsync(int appId, bool overwriteExisting, CancellationToken ct)
+    private async Task ProcessAppAsync(
+        int appId,
+        bool overwriteExisting,
+        GameEnrichmentImportState importState,
+        SteamSpyLookupCache lookupCache,
+        Dictionary<int, Domain.Entities.Game> gamesBySteamId,
+        ConcurrentBag<Domain.Entities.Game> updatedGames,
+        ImportBatchMetrics metrics,
+        SemaphoreSlim semaphore,
+        CancellationToken ct)
     {
-        var game = await games.GetBySteamIdAsync(appId, ct);
-        if (game is null) return;
-
-        var spy = await steamSpy.GetAppDetailsAsync(appId, ct);
-        if (spy is null || string.IsNullOrWhiteSpace(spy.Name) ||
-            string.Equals(spy.Name, "none", StringComparison.OrdinalIgnoreCase))
-        {
-            logger.LogWarning("SteamSpy: немає даних для AppId {AppId}", appId);
+        if (ct.IsCancellationRequested || !importState.IsImporting)
             return;
-        }
 
-        await steamSpyMapper.ApplyAsync(game, spy, games, overwriteExisting, ct);
-
-        if (overwriteExisting || string.IsNullOrWhiteSpace(game.Description))
+        await semaphore.WaitAsync(ct);
+        try
         {
-            var igdb = await igdbClient.GetBySteamIdAsync(appId, ct);
-            if (igdb is null)
+            if (!gamesBySteamId.TryGetValue(appId, out var game))
             {
-                logger.LogInformation("IGDB: пошук за назвою «{Name}» (AppId {AppId})", game.Name, appId);
-                var searchResults = await igdbClient.SearchGamesAsync(game.Name, ct);
-                igdb = searchResults.FirstOrDefault();
+                lock (metrics) { metrics.SkippedCount++; }
+                logger.LogWarning("SteamSpy enrichment: гру AppId {AppId} не знайдено в БД", appId);
+                return;
             }
 
-            if (igdb is not null && (!string.IsNullOrWhiteSpace(igdb.summary) || !string.IsNullOrWhiteSpace(igdb.storyline)))
+            var spy = await steamSpy.GetAppDetailsAsync(appId, ct);
+            if (spy is null || string.IsNullOrWhiteSpace(spy.Name) ||
+                string.Equals(spy.Name, "none", StringComparison.OrdinalIgnoreCase))
             {
-                descriptionMapper.ApplyDescription(game, igdb, overwriteExisting);
-                logger.LogInformation("Збагачено: {Name} (SteamSpy + IGDB опис)", game.Name);
+                lock (metrics) { metrics.SkippedCount++; }
+                logger.LogWarning("SteamSpy: немає даних для AppId {AppId}", appId);
+                return;
             }
-            else
-            {
-                logger.LogWarning("IGDB: опис не знайдено для {Name} (AppId {AppId})", game.Name, appId);
-            }
+
+            await steamSpyMapper.ApplyAsync(game, spy, lookupCache, overwriteExisting, ct);
+            updatedGames.Add(game);
+            lock (metrics) { metrics.SuccessCount++; }
+            logger.LogDebug("Збагачено: {Name} (SteamSpy)", game.Name);
         }
-
-        await games.UpdateAsync(game, ct);
+        catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
+        {
+            lock (metrics)
+            {
+                metrics.RateLimitCount++;
+                metrics.ErrorCount++;
+            }
+            logger.LogWarning(ex, "SteamSpy 429 при збагаченні AppId {AppId}", appId);
+        }
+        catch (Exception ex)
+        {
+            lock (metrics) { metrics.ErrorCount++; }
+            logger.LogError(ex, "Помилка збагачення гри Steam AppId {AppId}", appId);
+        }
+        finally
+        {
+            semaphore.Release();
+        }
     }
 }

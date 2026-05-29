@@ -25,13 +25,10 @@ public sealed class GameEnrichmentWorker : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        SteamSpyLookupCache? sessionLookupCache = null;
-
         while (!stoppingToken.IsCancellationRequested)
         {
             if (!_state.IsImporting)
             {
-                sessionLookupCache = null;
                 await Task.Delay(5000, stoppingToken);
                 continue;
             }
@@ -40,11 +37,8 @@ public sealed class GameEnrichmentWorker : BackgroundService
             {
                 using var scope = _serviceProvider.CreateScope();
                 var gamesRepo = scope.ServiceProvider.GetRequiredService<IGameRepository>();
-                var lookupRepo = scope.ServiceProvider.GetRequiredService<ILookupRepository>();
                 var enrichment = scope.ServiceProvider.GetRequiredService<GameEnrichmentService>();
                 var batchSize = _options.EnrichmentBatchSize;
-
-                sessionLookupCache ??= new SteamSpyLookupCache(lookupRepo);
 
                 while (_state.IsImporting && !stoppingToken.IsCancellationRequested)
                 {
@@ -58,7 +52,6 @@ public sealed class GameEnrichmentWorker : BackgroundService
                         _state.LastMessage = _state.OverwriteExisting
                             ? "Збагачення завершено."
                             : "Усі ігри мають метадані SteamSpy.";
-                        sessionLookupCache = null;
                         break;
                     }
 
@@ -66,7 +59,7 @@ public sealed class GameEnrichmentWorker : BackgroundService
                     _state.LastMessage = _state.OverwriteExisting
                         ? $"Збагачення: {_state.OverwriteSkip + 1}–{_state.OverwriteSkip + appIds.Count}…"
                         : $"Збагачення: {appIds.Count} ігор…";
-                    await enrichment.ImportBatchAsync(appIds, _state, sessionLookupCache, stoppingToken);
+                    await enrichment.ImportBatchAsync(appIds, _state, stoppingToken);
                     if (_state.OverwriteExisting)
                         _state.OverwriteSkip += appIds.Count;
                 }

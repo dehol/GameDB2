@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using GameDB.Application.DTOs;
 using GameDB.Application.Interfaces;
 using GameDB.Domain.Entities;
@@ -19,10 +18,10 @@ public class SteamImportService
     private readonly SteamImportOptions _options;
 
     public SteamImportService(
-        IGameRepository games, 
+        IGameRepository games,
         ISteamClient steamClient,
         ISteamSpyClient steamSpy,
-        SteamGameFilter filter, 
+        SteamGameFilter filter,
         GameMapper mapper,
         ILogger<SteamImportService> logger,
         IOptions<SteamImportOptions> options)
@@ -36,18 +35,21 @@ public class SteamImportService
         _options = options.Value;
     }
 
-    public async Task<int> ImportBasicGamesAsync()
+    public async Task<int> ImportBasicGamesAsync(CancellationToken ct = default)
     {
-        IReadOnlyCollection<SteamSpyAppListItemDto> steamSpyGames = [];
+        IReadOnlyCollection<SteamSpyAppListItemDto> steamSpyGames;
         try
         {
-            steamSpyGames = await _steamSpy.GetAppListAsync();
+            steamSpyGames = await _steamSpy.GetAllAppsAsync(ct);
+            _logger.LogInformation("SteamSpy basic import: завантажено {Count} appid з API", steamSpyGames.Count);
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "SteamSpy app list import failed");
+            return 0;
         }
-        var existingIds = await _games.GetExistingSteamAppIdsAsync();
+
+        var existingIds = await _games.GetExistingSteamAppIdsAsync(ct);
 
         var appMap = new Dictionary<int, string>();
         foreach (var sg in steamSpyGames)
@@ -72,22 +74,24 @@ public class SteamImportService
         for (int i = 0; i < newGames.Count; i += _options.BasicImportBatchSize)
         {
             var batch = newGames.Skip(i).Take(_options.BasicImportBatchSize).ToList();
-            await _games.BulkAddAsync(batch);
+            await _games.BulkAddAsync(batch, ct);
             _logger.LogInformation("Базовий імпорт: {Imported} / {Total}", i + batch.Count, newGames.Count);
         }
+
+        _logger.LogInformation("SteamSpy basic import complete: +{New} new games ({Total} in catalog map)",
+            newGames.Count, appMap.Count);
         return newGames.Count;
     }
 
     public async Task ImportDetailsBatchAsync(List<int> appIdsToUpdate, SteamImportState state, CancellationToken ct = default)
     {
         int backoffSeconds = 120 * 1000;
-        int requestsSinceLastPause = 0; 
-        
-        // --- МЕТРИКИ БАТЧУ ---
+        int requestsSinceLastPause = 0;
+
         int updatedCount = 0;
         int deletedCount = 0;
         int rateLimitHits = 0;
-        var stopwatch = Stopwatch.StartNew();
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
 
         _logger.LogInformation("Початок обробки батчу на {TotalGames} ігор...", appIdsToUpdate.Count);
 
@@ -101,26 +105,25 @@ public class SteamImportService
 
             int appId = appIdsToUpdate[i];
 
-            // --- ЛОГУВАННЯ ПРОГРЕСУ ---
             if (i > 0 && i % 20 == 0)
             {
-                _logger.LogInformation("Прогрес: {Current}/{Total}. Минуло часу: {Elapsed}", 
+                _logger.LogInformation("Прогрес: {Current}/{Total}. Минуло часу: {Elapsed}",
                     i, appIdsToUpdate.Count, stopwatch.Elapsed.ToString(@"mm\:ss"));
             }
 
             try
             {
                 var details = await _steamClient.GetAppDetailsAsync(appId);
-                
+
                 requestsSinceLastPause++;
 
                 if (requestsSinceLastPause >= _options.ProphylacticPauseAfter)
                 {
-                    _logger.LogInformation("Профілактична пауза: досягнуто {Limit} запитів. Йдемо спати на {Mins} хв...", 
-                        _options.ProphylacticPauseAfter, _options.PauseAfterBatchMs/60000);
-                    
-                    await Task.Delay(_options.PauseAfterBatchMs, ct); 
-                    requestsSinceLastPause = 0; 
+                    _logger.LogInformation("Профілактична пауза: досягнуто {Limit} запитів. Йдемо спати на {Mins} хв...",
+                        _options.ProphylacticPauseAfter, _options.PauseAfterBatchMs / 60000);
+
+                    await Task.Delay(_options.PauseAfterBatchMs, ct);
+                    requestsSinceLastPause = 0;
                 }
 
                 if (details == null)
@@ -131,7 +134,7 @@ public class SteamImportService
                     continue;
                 }
 
-                if(details.release_date == null)
+                if (details.release_date == null)
                 {
                     await _games.DeleteBySteamIdAsync(appId);
                     deletedCount++;
@@ -176,18 +179,18 @@ public class SteamImportService
                 await _games.UpdateAsync(game);
                 updatedCount++;
 
-                backoffSeconds = 120 * 1000; 
-                await Task.Delay(_options.DelayBetweenRequestsMs, ct); 
+                backoffSeconds = 120 * 1000;
+                await Task.Delay(_options.DelayBetweenRequestsMs, ct);
             }
             catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
             {
                 rateLimitHits++;
                 _logger.LogWarning("Rate Limit 429! Отримали бан на {AppId}. Чекаємо {Backoff} сек...", appId, backoffSeconds);
-                
+
                 await Task.Delay(backoffSeconds, ct);
-                
+
                 backoffSeconds = 120 * 1000;
-                requestsSinceLastPause = 0; 
+                requestsSinceLastPause = 0;
                 i--;
             }
             catch (Exception ex)
@@ -198,9 +201,8 @@ public class SteamImportService
 
         stopwatch.Stop();
 
-        // --- ФІНАЛЬНИЙ ЗВІТ БАТЧУ ---
         _logger.LogInformation(
-            "Батч завершено за {Elapsed}. Оновлено ігор: {Updated}, Видалено сміття: {Deleted}, Спіймано 429 лімітів: {RateLimits}", 
+            "Батч завершено за {Elapsed}. Оновлено ігор: {Updated}, Видалено сміття: {Deleted}, Спіймано 429 лімітів: {RateLimits}",
             stopwatch.Elapsed.ToString(@"mm\:ss"), updatedCount, deletedCount, rateLimitHits);
     }
 }

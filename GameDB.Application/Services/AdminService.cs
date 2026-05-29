@@ -40,11 +40,8 @@ public sealed class AdminService : IAdminService
 
         return new AdminDashboardDto(
             stats,
-            ToStatus(_enrichmentState.IsImporting, "enrichment", _enrichmentState.StartedAt, _enrichmentState.FinishedAt,
-                _enrichmentState.LastBatchSize, _enrichmentState.LastMessage, _enrichmentState.LastError),
-            ToStatus(_priceState.IsRunning, "steamspy", _priceState.StartedAt, _priceState.FinishedAt,
-                _priceState.LastBatchSize, _priceState.LastMessage, _priceState.LastError,
-                _priceState.ProcessedGames, _priceState.TotalGames),
+            ToEnrichmentStatus(),
+            ToPriceStatus(),
             pending);
     }
 
@@ -57,7 +54,7 @@ public sealed class AdminService : IAdminService
         => _adminRepo.GetGamesAsync(filter, page, pageSize, search, ct);
 
     public Task<int> ImportBasicGamesAsync(CancellationToken ct = default)
-        => _steamImport.ImportBasicGamesAsync();
+        => _steamImport.ImportBasicGamesAsync(ct);
 
     public void StartEnrichmentImport(bool overwriteExisting = false)
     {
@@ -66,9 +63,10 @@ public sealed class AdminService : IAdminService
         _enrichmentState.FinishedAt = null;
         _enrichmentState.OverwriteExisting = overwriteExisting;
         _enrichmentState.OverwriteSkip = 0;
+        _enrichmentState.ResetCounters();
         _enrichmentState.LastMessage = overwriteExisting
-            ? "Збагачення (SteamSpy + IGDB) запущено (перезапис)."
-            : "Збагачення (SteamSpy + IGDB) запущено.";
+            ? "Збагачення SteamSpy запущено (перезапис)."
+            : "Збагачення SteamSpy запущено.";
         _enrichmentState.LastError = null;
     }
 
@@ -123,7 +121,8 @@ public sealed class AdminService : IAdminService
                 {
                     _priceState.ProcessedGames = total;
                     _priceState.MarkFinished("Синхронізацію завершено.");
-                    _logger.LogInformation("SteamSpy price sync completed.");
+                    _logger.LogInformation("SteamSpy price sync completed. {Summary}",
+                        _priceState.LastBatchSummary ?? "OK");
                 }
             }
             catch (Exception ex)
@@ -144,15 +143,37 @@ public sealed class AdminService : IAdminService
         _priceState.LastMessage = "Зупинка…";
     }
 
-    private static ImportJobStatusDto ToStatus(
-        bool isRunning,
-        string source,
-        DateTime? started,
-        DateTime? finished,
-        int lastBatch,
-        string? message,
-        string? error,
-        int? processed = null,
-        int? total = null)
-        => new(isRunning, source, started, finished, lastBatch, message, error, processed, total);
+    private ImportJobStatusDto ToEnrichmentStatus()
+        => new(
+            _enrichmentState.IsImporting,
+            "enrichment",
+            _enrichmentState.StartedAt,
+            _enrichmentState.FinishedAt,
+            _enrichmentState.LastBatchSize,
+            _enrichmentState.LastMessage,
+            _enrichmentState.LastError,
+            SuccessCount: _enrichmentState.SuccessCount,
+            ErrorCount: _enrichmentState.ErrorCount,
+            SkippedCount: _enrichmentState.SkippedCount,
+            RateLimitCount: _enrichmentState.RateLimitCount,
+            LastBatchSummary: _enrichmentState.LastBatchSummary,
+            LastWarning: _enrichmentState.LastWarning);
+
+    private ImportJobStatusDto ToPriceStatus()
+        => new(
+            _priceState.IsRunning,
+            "steamspy",
+            _priceState.StartedAt,
+            _priceState.FinishedAt,
+            _priceState.LastBatchSize,
+            _priceState.LastMessage,
+            _priceState.LastError,
+            _priceState.ProcessedGames,
+            _priceState.TotalGames,
+            _priceState.SuccessCount,
+            _priceState.ErrorCount,
+            _priceState.SkippedCount,
+            _priceState.RateLimitCount,
+            _priceState.LastBatchSummary,
+            _priceState.LastWarning);
 }

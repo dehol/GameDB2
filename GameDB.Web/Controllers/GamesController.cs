@@ -33,7 +33,7 @@ public class GamesController : ControllerBase
     public IActionResult StartDetailsImport([FromQuery] bool overwrite = false)
     {
         _admin.StartEnrichmentImport(overwrite);
-        return Accepted(new { message = "Збагачення (SteamSpy + IGDB) запущено." });
+        return Accepted(new { message = "Збагачення SteamSpy запущено." });
     }
 
     [HttpPost("steam/details/stop")]

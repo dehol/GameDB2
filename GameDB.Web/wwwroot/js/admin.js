@@ -40,15 +40,23 @@
     }
 
     function jobHtml(job, label) {
-        const cls = job.isRunning ? 'running' : (job.lastError ? 'error' : '');
+        const cls = job.isRunning ? 'running' : (job.lastError ? 'error' : (job.lastWarning ? 'warn' : ''));
         const status = job.isRunning ? '▶ працює' : (job.finishedAt ? '■ зупинено' : '○ очікує');
         let text = `<strong>${label}</strong>: ${status}`;
         if (job.lastBatchSize) text += ` · батч ${job.lastBatchSize}`;
         if (job.lastMessage) text += `<br>${job.lastMessage}`;
+        if (job.lastBatchSummary) text += `<br><span class="text-muted">${job.lastBatchSummary}</span>`;
+        if (job.successCount != null || job.errorCount != null) {
+            text += `<br>OK ${job.successCount ?? 0} · skip ${job.skippedCount ?? 0} · err ${job.errorCount ?? 0} · 429 ${job.rateLimitCount ?? 0}`;
+        }
+        if (job.lastWarning) text += `<br><span class="text-warning">${job.lastWarning}</span>`;
         if (job.lastError) text += `<br><span class="text-danger">${job.lastError}</span>`;
         if (job.startedAt) text += `<br><span class="text-muted">з ${fmtDate(job.startedAt)}</span>`;
         return `<div class="admin-job-status ${cls}">${text}</div>`;
     }
+
+    let lastEnrichmentWarning = null;
+    let lastPriceWarning = null;
 
     function applyDashboard(d) {
         const s = d.stats;
@@ -65,6 +73,15 @@
 
         const price = d.priceSync;
         el('priceJobStatus').innerHTML = jobHtml(price, 'SteamSpy');
+
+        if (d.gameEnrichment.lastWarning && d.gameEnrichment.lastWarning !== lastEnrichmentWarning) {
+            lastEnrichmentWarning = d.gameEnrichment.lastWarning;
+            toast(`Збагачення: ${d.gameEnrichment.lastWarning}`, true);
+        }
+        if (price.lastWarning && price.lastWarning !== lastPriceWarning) {
+            lastPriceWarning = price.lastWarning;
+            toast(`Ціни: ${price.lastWarning}`, true);
+        }
 
         const wrap = el('priceProgressWrap');
         if (price.isRunning && price.processed != null) {

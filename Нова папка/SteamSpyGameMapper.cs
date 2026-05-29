@@ -16,7 +16,7 @@ public sealed class SteamSpyGameMapper(IOptions<SteamSpyImportOptions> options)
         IGameRepository games,
         bool overwriteExisting,
         CancellationToken ct = default)
-        => ApplyCoreAsync(game, dto, games, overwriteExisting, ct);
+        => ApplyCoreAsync(game, dto, games, overwriteExisting);
 
     public Task ApplyAsync(
         Game game,
@@ -24,14 +24,13 @@ public sealed class SteamSpyGameMapper(IOptions<SteamSpyImportOptions> options)
         SteamSpyLookupCache lookupCache,
         bool overwriteExisting,
         CancellationToken ct = default)
-        => ApplyCoreAsync(game, dto, lookupCache, overwriteExisting, ct);
+        => ApplyCoreAsync(game, dto, lookupCache, overwriteExisting);
 
     private async Task ApplyCoreAsync(
         Game game,
         SteamSpyAppDetailsDto dto,
         object lookup,
-        bool overwriteExisting,
-        CancellationToken ct)
+        bool overwriteExisting)
     {
         var updated = false;
 
@@ -41,7 +40,7 @@ public sealed class SteamSpyGameMapper(IOptions<SteamSpyImportOptions> options)
             {
                 var dev = lookup switch
                 {
-                    SteamSpyLookupCache cache => await cache.GetOrCreateDeveloperAsync(dto.Developer.Trim(), ct),
+                    SteamSpyLookupCache cache => await cache.GetOrCreateDeveloperAsync(dto.Developer.Trim()),
                     IGameRepository repo => await repo.GetOrCreateDeveloperAsync(dto.Developer.Trim()),
                     _ => throw new ArgumentException("Invalid lookup type", nameof(lookup))
                 };
@@ -56,7 +55,7 @@ public sealed class SteamSpyGameMapper(IOptions<SteamSpyImportOptions> options)
             {
                 var pub = lookup switch
                 {
-                    SteamSpyLookupCache cache => await cache.GetOrCreatePublisherAsync(dto.Publisher.Trim(), ct),
+                    SteamSpyLookupCache cache => await cache.GetOrCreatePublisherAsync(dto.Publisher.Trim()),
                     IGameRepository repo => await repo.GetOrCreatePublisherAsync(dto.Publisher.Trim()),
                     _ => throw new ArgumentException("Invalid lookup type", nameof(lookup))
                 };
@@ -76,7 +75,7 @@ public sealed class SteamSpyGameMapper(IOptions<SteamSpyImportOptions> options)
                     if (string.IsNullOrWhiteSpace(part)) continue;
                     var genre = lookup switch
                     {
-                        SteamSpyLookupCache cache => await cache.GetOrCreateGenreAsync(part, ct),
+                        SteamSpyLookupCache cache => await cache.GetOrCreateGenreAsync(part),
                         IGameRepository repo => await repo.GetOrCreateGenreAsync(part),
                         _ => throw new ArgumentException("Invalid lookup type", nameof(lookup))
                     };
@@ -103,7 +102,7 @@ public sealed class SteamSpyGameMapper(IOptions<SteamSpyImportOptions> options)
                     if (string.IsNullOrWhiteSpace(tagName)) continue;
                     var tag = lookup switch
                     {
-                        SteamSpyLookupCache cache => await cache.GetOrCreateTagAsync(tagName.Trim(), ct),
+                        SteamSpyLookupCache cache => await cache.GetOrCreateTagAsync(tagName.Trim()),
                         IGameRepository repo => await repo.GetOrCreateTagAsync(tagName.Trim()),
                         _ => throw new ArgumentException("Invalid lookup type", nameof(lookup))
                     };

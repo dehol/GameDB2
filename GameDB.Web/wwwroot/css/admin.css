@@ -59,6 +59,11 @@
     color: #842029;
 }
 
+.admin-job-status.warn {
+    background: #fff3cd;
+    color: #664d03;
+}
+
 .admin-games-table th {
     font-size: 0.8rem;
     white-space: nowrap;

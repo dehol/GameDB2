@@ -30,7 +30,13 @@ public record ImportJobStatusDto(
     string? LastMessage,
     string? LastError,
     int? Processed = null,
-    int? Total = null);
+    int? Total = null,
+    int? SuccessCount = null,
+    int? ErrorCount = null,
+    int? SkippedCount = null,
+    int? RateLimitCount = null,
+    string? LastBatchSummary = null,
+    string? LastWarning = null);
 
 public record AdminDashboardDto(
     AdminStatsDto Stats,
