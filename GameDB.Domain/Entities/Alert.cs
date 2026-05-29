@@ -1,4 +1,4 @@
-﻿namespace GameDB.Domain.Entities;
+namespace GameDB.Domain.Entities;
 
 public partial class Alert
 {
