@@ -3,39 +3,33 @@ using GameDB.Application.Interfaces;
 
 namespace GameDB.Application.Services;
 
-public class CatalogService
+/// <summary>
+/// Application-шар: оркестрація каталогу.
+/// Залежить тільки від ICatalogRepository (інтерфейс) — без знання про EF / AppDbContext.
+/// </summary>
+public class CatalogService : ICatalogService
 {
-    private readonly IGameOfferRepository _gameOffers;
-    private readonly IGameRepository _games;
+    private readonly ICatalogRepository _repo;
 
-    public CatalogService(IGameOfferRepository gameOffers, IGameRepository games)
+    public CatalogService(ICatalogRepository repo) => _repo = repo;
+
+    public async Task<CatalogResultDto> GetCatalogAsync(
+        CatalogFilterDto filter, CancellationToken ct = default)
     {
-        _gameOffers = gameOffers;
-        _games = games;
+        var (items, total) = await _repo.GetPagedAsync(filter, ct);
+
+        return new CatalogResultDto(
+            Items:      items,
+            TotalCount: total,
+            Page:       filter.Page,
+            PageSize:   filter.PageSize,
+            TotalPages: (int)Math.Ceiling(total / (double)filter.PageSize)
+        );
     }
 
-    public async Task<(List<GameSummaryDto> items, int totalCount)> GetCatalogAsync()
-    {
-        throw new NotImplementedException();
-        /*var games = await _games.GetAllAsync();
-        var items = new List<GameSummaryDto>();
+    public Task<CatalogSidebarDto> GetSidebarDataAsync(CancellationToken ct = default)
+        => _repo.GetSidebarDataAsync(ct);
 
-        foreach (var game in games)
-        {
-            var offers = await _gameOffers.GetByGameIdAsync(game.GameId);
-            var offer = offers.FirstOrDefault();
-
-            items.Add(new GameSummaryDto(
-                GameId: game.GameId,
-                Name: game.Name,
-                Slug: game.Slug,
-                HeaderImage: game.HeaderImage,
-                ReleaseDate: game.ReleaseDate,
-                CurrentPrice: offer?.CurrentPrice ?? 0m,
-                CurrentDiscount: offer?.CurrentDiscount ?? 0
-            ));
-        }
-
-        return (items, items.Count);*/
-    }
+    public Task<GameDetailDto?> GetGameDetailAsync(int gameId, CancellationToken ct = default)
+        => _repo.GetDetailAsync(gameId, ct);
 }

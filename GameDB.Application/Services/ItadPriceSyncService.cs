@@ -208,7 +208,7 @@ public sealed class ItadPriceSyncService(
                 await priceManager.ProcessPriceUpdateAsync(
                     gameId: dbGameId,
                     shopId: 1,
-                    newPrice: steamOffer.price.amount,
+                    newPrice: steamOffer.regular.amount,
                     newDiscount: (short)steamOffer.cut,
                     currency: steamOffer.price.currency ?? "USD",
                     externalId: steamIdStr,
@@ -227,7 +227,7 @@ public sealed class ItadPriceSyncService(
                     Currency: {Currency}
                     """,
                     steamIdStr,
-                    steamOffer.price.amount,
+                    steamOffer.regular.amount,
                     steamOffer.cut,
                     steamOffer.price.currency);
             }

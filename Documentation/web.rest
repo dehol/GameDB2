@@ -8,11 +8,25 @@ POST http://localhost:5295/api/steam/details/stop
 ###
 GET http://localhost:5295/api/steam/details/status
 ###
-GET https://api.isthereanydeal.com/games/info/v2?key=7bd712b455dc2e3762b376e9f2ea3a92ecddf983&id=01951b68-738a-73c4-a852-b75cac3b480a
+GET https://api.isthereanydeal.com/games/info/v2?key=7bd712b455dc2e3762b376e9f2ea3a92ecddf983&id=018d937f-51f4-727c-95c0-ba550d156c86
 Content-Type: application/json
 
 [
-  "01905bf0-2870-729d-ae21-64681e63b089"
+  "018d937f-07fc-72ed-8517-d8e24cb1eb22"
+]
+###
+POST https://api.isthereanydeal.com/games/prices/v3?key=7bd712b455dc2e3762b376e9f2ea3a92ecddf983&country=UA&nondeals=true&shops=61
+Content-Type: application/json
+
+[
+  "018d937f-51f4-727c-95c0-ba550d156c86"
+]
+###
+POST https://api.isthereanydeal.com/lookup/id/shop/61/v1?key=7bd712b455dc2e3762b376e9f2ea3a92ecddf983
+Content-Type: application/json
+
+[
+  "app/632470"
 ]
 ###
 POST https://id.twitch.tv/oauth2/token?client_id=5tbrr5lisv5uomqf69f7tu35qqpguv&client_secret=25ukjitxzg4kz0z2yimgekb31bylmw&grant_type=client_credentials

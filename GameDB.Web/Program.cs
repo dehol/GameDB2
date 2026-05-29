@@ -8,6 +8,7 @@ using Microsoft.EntityFrameworkCore;
 using GameDB.Infrastructure.Data.Repositories;
 using GameDB.Infrastructure.ExternalProviders;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using GameDB.Infrastructure.Catalog;
 
 // Bootstrap-логер
 Log.Logger = new LoggerConfiguration()
@@ -62,6 +63,7 @@ try
     builder.Services.AddScoped<IGameOfferRepository, GameOfferRepository>();
     builder.Services.AddScoped<IGameRepository, GameRepository>();
     builder.Services.AddScoped<ILookupRepository, LookupRepository>();
+    builder.Services.AddScoped<ICatalogRepository, CatalogRepository>();
 
     // ── Сервіси Auth ─────────────────────────────────────────────────────────
     builder.Services.AddScoped<AuthService>();
@@ -80,6 +82,9 @@ try
     builder.Services.AddScoped<SteamImportService>();
     builder.Services.AddSingleton<IgdbGameMapper>();
     builder.Services.AddScoped<FastIgdbImportService>();
+    //
+    builder.Services.AddScoped<ICatalogService, CatalogService>();
+    
 
     // ── Background Workers ───────────────────────────────────────────────────
     builder.Services.AddSingleton<SteamImportState>();

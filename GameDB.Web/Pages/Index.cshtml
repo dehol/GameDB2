@@ -1,10 +1,532 @@
 ﻿@page
-@model IndexModel
+@using GameDB.Application.DTOs
+@model GameDB.Web.Pages.Catalog.IndexModel
 @{
-    ViewData["Title"] = "Home page";
+    ViewData["Title"] = "Каталог ігор";
+    var f = Model;
 }
 
-<div class="text-center">
-    <h1 class="display-4">Welcome</h1>
-    <p>Learn about <a href="https://learn.microsoft.com/aspnet/core">building Web apps with ASP.NET Core</a>.</p>
+@* ── Стилі каталогу ──────────────────────────────────────────────────────── *@
+<style>
+    /* Layout */
+    .catalog-layout { display: flex; gap: 1.5rem; align-items: flex-start; }
+    .catalog-sidebar { width: 260px; flex-shrink: 0; }
+    .catalog-main    { flex: 1; min-width: 0; }
+
+    @@media (max-width: 991px) {
+        .catalog-layout  { flex-direction: column; }
+        .catalog-sidebar { width: 100%; }
+    }
+
+    /* Sidebar */
+    .sidebar-section { margin-bottom: 1.25rem; }
+    .sidebar-section .section-title {
+        font-size: .75rem; font-weight: 700; text-transform: uppercase;
+        letter-spacing: .05em; color: #6c757d; margin-bottom: .5rem;
+    }
+    .sidebar-section .form-check-label { font-size: .875rem; }
+    .genre-count { font-size: .75rem; color: #adb5bd; margin-left: auto; }
+
+    /* Game cards */
+    .games-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+        gap: 1rem;
+    }
+    .game-card {
+        border-radius: 8px; overflow: hidden; border: 1px solid #dee2e6;
+        transition: transform .15s, box-shadow .15s; background: #fff;
+        text-decoration: none; color: inherit; display: flex; flex-direction: column;
+    }
+    .game-card:hover {
+        transform: translateY(-3px);
+        box-shadow: 0 6px 20px rgba(0,0,0,.12);
+        text-decoration: none; color: inherit;
+    }
+    .game-card-img { width: 100%; aspect-ratio: 460/215; object-fit: cover; background: #1b2838; }
+    .game-card-img-placeholder {
+        width: 100%; aspect-ratio: 460/215; background: linear-gradient(135deg, #1b2838 0%, #2a475e 100%);
+        display: flex; align-items: center; justify-content: center; color: #4a6d87; font-size: 2rem;
+    }
+    .game-card-body { padding: .75rem; flex: 1; display: flex; flex-direction: column; }
+    .game-card-name { font-size: .875rem; font-weight: 600; line-height: 1.3; margin-bottom: .3rem;
+        display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    .game-card-developer { font-size: .75rem; color: #6c757d; margin-bottom: .4rem; }
+    .game-card-genres { margin-bottom: .5rem; }
+    .game-card-genres .badge { font-size: .65rem; font-weight: 500; }
+    .game-card-footer { margin-top: auto; display: flex; align-items: center; justify-content: space-between; }
+    .game-card-rating { font-size: .75rem; color: #f7c948; }
+    .game-card-price { text-align: right; }
+    .price-free    { font-weight: 700; color: #28a745; font-size: .875rem; }
+    .price-current { font-weight: 700; font-size: .875rem; }
+    .price-original{ text-decoration: line-through; color: #adb5bd; font-size: .75rem; }
+    .discount-badge { background: #4c6b22; color: #c6d4df; font-size: .7rem;
+        padding: 1px 5px; border-radius: 3px; font-weight: 700; }
+
+    /* Sort bar */
+    .sort-bar { display: flex; align-items: center; gap: .75rem; flex-wrap: wrap; }
+    .sort-link { font-size: .8rem; padding: .25rem .6rem; border-radius: 4px; text-decoration: none;
+        color: #495057; background: #f8f9fa; border: 1px solid #dee2e6; transition: .1s; }
+    .sort-link:hover   { background: #e9ecef; }
+    .sort-link.active  { background: #0d6efd; color: #fff; border-color: #0d6efd; }
+
+    /* Пагінація */
+    .pagination { flex-wrap: wrap; }
+
+    /* Фільтр-теги */
+    .active-filters { display: flex; flex-wrap: wrap; gap: .4rem; margin-bottom: .75rem; }
+    .filter-tag { font-size: .75rem; background: #e9ecef; border-radius: 20px;
+        padding: .2rem .65rem; display: inline-flex; align-items: center; gap: .3rem; }
+    .filter-tag .remove { cursor: pointer; color: #6c757d; font-size: .85rem; text-decoration: none; }
+    .filter-tag .remove:hover { color: #dc3545; }
+
+    /* Price range slider */
+    .price-range input[type=range] { width: 100%; accent-color: #0d6efd; }
+
+    /* Collapsed genres list */
+    .genre-list-inner { max-height: 240px; overflow-y: auto; }
+    .genre-list-inner::-webkit-scrollbar { width: 4px; }
+    .genre-list-inner::-webkit-scrollbar-thumb { background: #dee2e6; border-radius: 2px; }
+</style>
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h1 class="h3 mb-0">Каталог ігор</h1>
+    <span class="text-muted small">@Model.Result.TotalCount ігор</span>
 </div>
+
+@* ── Активні фільтри (теги) ───────────────────────────────────────────────── *@
+@{
+    bool hasFilters = !string.IsNullOrWhiteSpace(f.Search) || f.Genres.Count > 0 ||
+                      f.DeveloperId.HasValue || f.PublisherId.HasValue || f.ShopId.HasValue ||
+                      f.MinPrice.HasValue || f.MaxPrice.HasValue || f.MinDiscount.HasValue ||
+                      f.YearFrom.HasValue || f.YearTo.HasValue || f.MinRating.HasValue || f.IsFree == true;
+}
+@if (hasFilters)
+{
+    <div class="active-filters">
+        @if (!string.IsNullOrWhiteSpace(f.Search))
+        {
+            <span class="filter-tag">🔍 "@f.Search" <a class="remove" href="@RemoveFilter("search")">×</a></span>
+        }
+        @foreach (var gid in f.Genres)
+        {
+            var gname = Model.Sidebar.Genres.FirstOrDefault(g => g.GenreId == gid)?.Name ?? gid.ToString();
+            <span class="filter-tag">🎮 @gname <a class="remove" href="@RemoveGenre(gid)">×</a></span>
+        }
+        @if (f.DeveloperId.HasValue)
+        {
+            var dname = Model.Sidebar.Developers.FirstOrDefault(d => d.DeveloperId == f.DeveloperId.Value)?.Name ?? "";
+            <span class="filter-tag">👨‍💻 @dname <a class="remove" href="@RemoveFilter("developerId")">×</a></span>
+        }
+        @if (f.PublisherId.HasValue)
+        {
+            var pname = Model.Sidebar.Publishers.FirstOrDefault(p => p.PublisherId == f.PublisherId.Value)?.Name ?? "";
+            <span class="filter-tag">🏢 @pname <a class="remove" href="@RemoveFilter("publisherId")">×</a></span>
+        }
+        @if (f.ShopId.HasValue)
+        {
+            var sname = Model.Sidebar.Shops.FirstOrDefault(s => s.ShopId == f.ShopId.Value)?.Name ?? "";
+            <span class="filter-tag">🛒 @sname <a class="remove" href="@RemoveFilter("shopId")">×</a></span>
+        }
+        @if (f.MinPrice.HasValue || f.MaxPrice.HasValue)
+        {
+            <span class="filter-tag">💰 @(f.MinPrice?.ToString("0.##") ?? "0")–@(f.MaxPrice?.ToString("0.##") ?? "∞")
+                <a class="remove" href="@RemoveFilters("minPrice","maxPrice")">×</a></span>
+        }
+        @if (f.MinDiscount.HasValue)
+        {
+            <span class="filter-tag">🏷 ≥@f.MinDiscount%
+                <a class="remove" href="@RemoveFilter("minDiscount")">×</a></span>
+        }
+        @if (f.YearFrom.HasValue || f.YearTo.HasValue)
+        {
+            <span class="filter-tag">📅 @(f.YearFrom?.ToString() ?? "")–@(f.YearTo?.ToString() ?? "")
+                <a class="remove" href="@RemoveFilters("yearFrom","yearTo")">×</a></span>
+        }
+        @if (f.MinRating.HasValue)
+        {
+            <span class="filter-tag">⭐ ≥@f.MinRating%
+                <a class="remove" href="@RemoveFilter("minRating")">×</a></span>
+        }
+        @if (f.IsFree == true)
+        {
+            <span class="filter-tag">🆓 Безкоштовні
+                <a class="remove" href="@RemoveFilter("isFree")">×</a></span>
+        }
+        <a href="/Catalog" class="filter-tag" style="background:#fff3cd;">✕ Скинути всі</a>
+    </div>
+}
+
+@* ── Основний layout ─────────────────────────────────────────────────────── *@
+<div class="catalog-layout">
+
+    @* ── Sidebar з фільтрами ─────────────────────────────────────────────── *@
+    <aside class="catalog-sidebar">
+        <form method="get" id="filterForm">
+            @* Пошук *@
+            <div class="sidebar-section">
+                <div class="section-title">Пошук</div>
+                <div class="input-group input-group-sm">
+                    <input type="text" name="search" class="form-control" placeholder="Назва гри..."
+                           value="@f.Search" />
+                    <button class="btn btn-outline-secondary" type="submit">🔍</button>
+                </div>
+            </div>
+
+            @* Сортування (приховані inputs) *@
+            <input type="hidden" name="sortBy"   value="@f.SortBy" />
+            <input type="hidden" name="sortDesc" value="@f.SortDesc.ToString().ToLower()" />
+            <input type="hidden" name="page"     value="1" />
+            <input type="hidden" name="pageSize" value="@f.PageSize" />
+
+            @* Жанри *@
+            @if (Model.Sidebar.Genres.Count > 0)
+            {
+                <div class="sidebar-section">
+                    <div class="section-title">Жанри</div>
+                    <div class="genre-list-inner">
+                        @foreach (var genre in Model.Sidebar.Genres)
+                        {
+                            <div class="form-check d-flex align-items-center">
+                                <input class="form-check-input filter-check" type="checkbox" name="genres"
+                                       value="@genre.GenreId" id="g@(genre.GenreId)"
+                                       @(f.Genres.Contains(genre.GenreId) ? "checked" : "") />
+                                <label class="form-check-label flex-grow-1" for="g@(genre.GenreId)">@genre.Name</label>
+                                <span class="genre-count">@genre.GameCount</span>
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
+
+            @* Магазин *@
+            @if (Model.Sidebar.Shops.Count > 0)
+            {
+                <div class="sidebar-section">
+                    <div class="section-title">Магазин</div>
+                    <select name="shopId" class="form-select form-select-sm filter-select">
+                        <option value="">Усі магазини</option>
+                        @foreach (var shop in Model.Sidebar.Shops)
+                        {
+                            if (f.ShopId == shop.ShopId)
+                            {
+                                <option value="@shop.ShopId" selected>@shop.Name</option>
+                            }
+                            else
+                            {
+                                <option value="@shop.ShopId">@shop.Name</option>
+                            }
+                        }
+                    </select>
+                </div>
+            }
+
+            @* Ціна *@
+            <div class="sidebar-section price-range">
+                <div class="section-title">Ціна (до)</div>
+                <div class="d-flex gap-2">
+                    <input type="number" name="minPrice" class="form-control form-control-sm"
+                           placeholder="Від" value="@f.MinPrice" min="0" step="0.01" />
+                    <input type="number" name="maxPrice" class="form-control form-control-sm"
+                           placeholder="До" value="@f.MaxPrice" min="0" step="0.01" />
+                </div>
+                <div class="form-check mt-2">
+                    <input class="form-check-input filter-check" type="checkbox" name="isFree" value="true"
+                           id="chkFree" @(f.IsFree == true ? "checked" : "") />
+                    <label class="form-check-label small" for="chkFree">Тільки безкоштовні</label>
+                </div>
+            </div>
+
+            @* Знижка *@
+            <div class="sidebar-section">
+                <div class="section-title">Мін. знижка</div>
+                <select name="minDiscount" class="form-select form-select-sm filter-select">
+                    <option value="">Будь-яка</option> 
+                    @foreach (var pct in new[] { 10, 25, 50, 75, 90 }) 
+                    { 
+                        if (f.MinDiscount == pct) 
+                        { 
+                            <option value="@pct" selected>≥ @pct%</option> 
+                        }
+                        else 
+                        { 
+                            <option value="@pct">≥ @pct%</option> 
+                        } 
+                    }
+                    
+                </select>
+            </div>
+
+            @* Рейтинг *@
+            <div class="sidebar-section">
+                <div class="section-title">Мін. рейтинг</div>
+                <select name="minRating" class="form-select form-select-sm filter-select">
+                    <option value="">Будь-який</option>
+                    @foreach (var r in new[] { 50.0, 60.0, 70.0, 80.0, 90.0 }) 
+                    { 
+                        if (f.MinRating == r) 
+                        { 
+                            <option value="@r" selected>≥ @r%</option> 
+                        } 
+                        else 
+                        { 
+                            <option value="@r">≥ @r%</option> 
+                        } 
+                    }
+                </select>
+            </div>
+
+            @* Рік випуску *@
+            <div class="sidebar-section">
+                <div class="section-title">Рік випуску</div>
+                <div class="d-flex gap-2">
+                    <input type="number" name="yearFrom" class="form-control form-control-sm"
+                           placeholder="З" value="@f.YearFrom"
+                           min="@Model.Sidebar.MinYear" max="@Model.Sidebar.MaxYear" />
+                    <input type="number" name="yearTo" class="form-control form-control-sm"
+                           placeholder="По" value="@f.YearTo"
+                           min="@Model.Sidebar.MinYear" max="@Model.Sidebar.MaxYear" />
+                </div>
+            </div>
+
+            @* Розробник *@
+            @if (Model.Sidebar.Developers.Count > 0)
+            {
+                <div class="sidebar-section">
+                    <div class="section-title">Розробник</div>
+                    <select name="developerId" class="form-select form-select-sm filter-select">
+                        <option value="">Усі розробники</option>
+                        @foreach (var dev in Model.Sidebar.Developers) 
+                        { 
+                            if (f.DeveloperId == dev.DeveloperId) 
+                            { 
+                                <option value="@dev.DeveloperId" selected>@dev.Name</option> 
+                            } 
+                            else 
+                            { 
+                                <option value="@dev.DeveloperId">@dev.Name</option> 
+                            } 
+                        }
+                    </select>
+                </div>
+            }
+
+            @* Видавець *@
+            @if (Model.Sidebar.Publishers.Count > 0)
+            {
+                <div class="sidebar-section">
+                    <div class="section-title">Видавець</div>
+                    <select name="publisherId" class="form-select form-select-sm filter-select">
+                        <option value="">Усі видавці</option>
+                        @foreach (var pub in Model.Sidebar.Publishers) 
+                        { 
+                            if (f.PublisherId == pub.PublisherId) 
+                            { 
+                                <option value="@pub.PublisherId" selected>@pub.Name</option> 
+                            } 
+                            else 
+                            { 
+                                <option value="@pub.PublisherId">@pub.Name</option> 
+                            } 
+                        }
+                    </select>
+                </div>
+            }
+
+            <button type="submit" class="btn btn-primary btn-sm w-100">Застосувати</button>
+            <a href="/Catalog" class="btn btn-outline-secondary btn-sm w-100 mt-2">Скинути фільтри</a>
+        </form>
+    </aside>
+
+    @* ── Головна частина: сортування + картки ────────────────────────────── *@
+    <div class="catalog-main">
+
+        @* Рядок з сортуванням і кількістю *@
+        <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+            <div class="sort-bar">
+                <span class="text-muted small">Сортувати:</span>
+                @{
+                    string SortClass(CatalogSortBy s) => f.SortBy == s ? "sort-link active" : "sort-link";
+                    string SortIcon(CatalogSortBy s)  => f.SortBy == s ? (f.SortDesc ? " ↓" : " ↑") : "";
+                }
+                <a href="@Model.SortUrl(CatalogSortBy.Rating)"      class="@SortClass(CatalogSortBy.Rating)">Рейтинг@SortIcon(CatalogSortBy.Rating)</a>
+                <a href="@Model.SortUrl(CatalogSortBy.Price)"       class="@SortClass(CatalogSortBy.Price)">Ціна@SortIcon(CatalogSortBy.Price)</a>
+                <a href="@Model.SortUrl(CatalogSortBy.Discount)"    class="@SortClass(CatalogSortBy.Discount)">Знижка@SortIcon(CatalogSortBy.Discount)</a>
+                <a href="@Model.SortUrl(CatalogSortBy.ReleaseDate)" class="@SortClass(CatalogSortBy.ReleaseDate)">Дата@SortIcon(CatalogSortBy.ReleaseDate)</a>
+                <a href="@Model.SortUrl(CatalogSortBy.Name)"        class="@SortClass(CatalogSortBy.Name)">Назва@SortIcon(CatalogSortBy.Name)</a>
+            </div>
+            <div class="text-muted small">
+                Показано @(((Model.Result.Page - 1) * Model.Result.PageSize) + 1)–@(Math.Min(Model.Result.Page * Model.Result.PageSize, Model.Result.TotalCount))
+                з @Model.Result.TotalCount
+            </div>
+        </div>
+
+        @* Карки ігор *@
+        @if (Model.Result.Items.Count == 0)
+        {
+            <div class="text-center py-5 text-muted">
+                <div style="font-size:3rem">🎮</div>
+                <p class="mt-2">Ігор за вашими фільтрами не знайдено.</p>
+                <a href="/Catalog" class="btn btn-outline-primary btn-sm">Скинути фільтри</a>
+            </div>
+        }
+        else
+        {
+            <div class="games-grid">
+                @foreach (var game in Model.Result.Items)
+                {
+                    <a class="game-card" href="/Catalog/Details/@game.GameId">
+                        @if (!string.IsNullOrEmpty(game.HeaderImage))
+                        {
+                            <img class="game-card-img" src="@game.HeaderImage" alt="@game.Name" loading="lazy" />
+                        }
+                        else
+                        {
+                            <div class="game-card-img-placeholder">🎮</div>
+                        }
+                        <div class="game-card-body">
+                            <div class="game-card-name" title="@game.Name">@game.Name</div>
+                            @if (!string.IsNullOrEmpty(game.DeveloperName))
+                            {
+                                <div class="game-card-developer">@game.DeveloperName</div>
+                            }
+                            @if (game.Genres.Count > 0)
+                            {
+                                <div class="game-card-genres">
+                                    @foreach (var genre in game.Genres.Take(2))
+                                    {
+                                        <span class="badge bg-secondary me-1">@genre</span>
+                                    }
+                                    @if (game.Genres.Count > 2)
+                                    {
+                                        <span class="badge bg-light text-muted">+@(game.Genres.Count - 2)</span>
+                                    }
+                                </div>
+                            }
+                            <div class="game-card-footer">
+                                <div class="game-card-rating">
+                                    @if (game.Rating.HasValue)
+                                    {
+                                        <span>⭐ @game.Rating.Value.ToString("0")%</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="text-muted">—</span>
+                                    }
+                                </div>
+                                <div class="game-card-price">
+                                    @if (game.IsFree)
+                                    {
+                                        <span class="price-free">Безкоштовно</span>
+                                    }
+                                    else if (game.BestFinalPrice.HasValue)
+                                    {
+                                        @if (game.BestDiscount > 0)
+                                        {
+                                            <div><span class="discount-badge">-@game.BestDiscount%</span></div>
+                                            <div><span class="price-original">@game.BestCurrentPrice?.ToString("0.##") @game.BestCurrency</span></div>
+                                        }
+                                        <span class="price-current">@game.BestFinalPrice.Value.ToString("0.##") @game.BestCurrency</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="text-muted small">Ціна невідома</span>
+                                    }
+                                </div>
+                            </div>
+                        </div>
+                    </a>
+                }
+            </div>
+        }
+
+        @* Пагінація *@
+        @if (Model.Result.TotalPages > 1)
+        {
+            <nav class="mt-4">
+                <ul class="pagination justify-content-center">
+                    @if (Model.Result.Page > 1)
+                    {
+                        <li class="page-item">
+                            <a class="page-link" href="@Model.PageUrl(Model.Result.Page - 1)">‹</a>
+                        </li>
+                    }
+                    @{
+                        int startPage = Math.Max(1, Model.Result.Page - 3);
+                        int endPage   = Math.Min(Model.Result.TotalPages, Model.Result.Page + 3);
+                    }
+                    @if (startPage > 1)
+                    {
+                        <li class="page-item"><a class="page-link" href="@Model.PageUrl(1)">1</a></li>
+                        @if (startPage > 2) { <li class="page-item disabled"><span class="page-link">…</span></li> }
+                    }
+                    @for (int p = startPage; p <= endPage; p++)
+                    {
+                        <li class="page-item @(p == Model.Result.Page ? "active" : "")">
+                            <a class="page-link" href="@Model.PageUrl(p)">@p</a>
+                        </li>
+                    }
+                    @if (endPage < Model.Result.TotalPages)
+                    {
+                        @if (endPage < Model.Result.TotalPages - 1) { <li class="page-item disabled"><span class="page-link">…</span></li> }
+                        <li class="page-item"><a class="page-link" href="@Model.PageUrl(Model.Result.TotalPages)">@Model.Result.TotalPages</a></li>
+                    }
+                    @if (Model.Result.Page < Model.Result.TotalPages)
+                    {
+                        <li class="page-item">
+                            <a class="page-link" href="@Model.PageUrl(Model.Result.Page + 1)">›</a>
+                        </li>
+                    }
+                </ul>
+            </nav>
+        }
+    </div>
+</div>
+
+@* ── Авто-сабміт при зміні чекбоксів/селектів ────────────────────────────── *@
+@section Scripts {
+<script>
+    // Авто-відправка форми при зміні select
+    document.querySelectorAll('.filter-select').forEach(el => {
+        el.addEventListener('change', () => document.getElementById('filterForm').submit());
+    });
+    // Авто-відправка при зміні чекбоксів (жанри, безкоштовні)
+    document.querySelectorAll('.filter-check').forEach(el => {
+        el.addEventListener('change', () => document.getElementById('filterForm').submit());
+    });
+</script>
+}
+
+@* ── Хелпери для видалення фільтрів ─────────────────────────────────────── *@
+@functions {
+    private string RemoveFilter(string key)
+    {
+        var qs = Request.Query
+            .Where(kv => !kv.Key.Equals(key, StringComparison.OrdinalIgnoreCase) &&
+                         !kv.Key.Equals("page", StringComparison.OrdinalIgnoreCase))
+            .Select(kv => $"{kv.Key}={Uri.EscapeDataString(kv.Value.ToString())}");
+        return "/Catalog?" + string.Join("&", qs);
+    }
+
+    private string RemoveFilters(params string[] keys)
+    {
+        var qs = Request.Query
+            .Where(kv => !keys.Contains(kv.Key, StringComparer.OrdinalIgnoreCase) &&
+                         !kv.Key.Equals("page", StringComparison.OrdinalIgnoreCase))
+            .Select(kv => $"{kv.Key}={Uri.EscapeDataString(kv.Value.ToString())}");
+        return "/Catalog?" + string.Join("&", qs);
+    }
+
+    private string RemoveGenre(int genreId)
+    {
+        var qs = Request.Query
+            .Where(kv => !kv.Key.Equals("page", StringComparison.OrdinalIgnoreCase))
+            .SelectMany(kv =>
+                kv.Key.Equals("genres", StringComparison.OrdinalIgnoreCase)
+                    ? kv.Value
+                        .Where(v => v != genreId.ToString())
+                        .Select(v => $"genres={Uri.EscapeDataString(v!)}")
+                    : new[] { $"{kv.Key}={Uri.EscapeDataString(kv.Value.ToString())}" });
+        return "/Catalog?" + string.Join("&", qs);
+    }
+}
