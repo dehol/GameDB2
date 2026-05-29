@@ -21,6 +21,7 @@ public class GamesController : ControllerBase
     }
 
     [HttpPost("steam/basic-import")]
+    [ValidateAntiForgeryToken]
     public async Task<IActionResult> ImportBasic()
     {
         var imported = await _steamImportService.ImportBasicGamesAsync();
@@ -28,13 +29,15 @@ public class GamesController : ControllerBase
     }
 
     [HttpPost("steam/details/start")]
-    public IActionResult StartDetailsImport()
+    [ValidateAntiForgeryToken]
+    public IActionResult StartDetailsImport([FromQuery] bool overwrite = false)
     {
-        _admin.StartEnrichmentImport();
+        _admin.StartEnrichmentImport(overwrite);
         return Accepted(new { message = "Збагачення (SteamSpy + IGDB) запущено." });
     }
 
     [HttpPost("steam/details/stop")]
+    [ValidateAntiForgeryToken]
     public IActionResult StopDetailsImport()
     {
         _admin.StopEnrichmentImport();

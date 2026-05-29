@@ -15,9 +15,14 @@
         t._hide = setTimeout(() => t.classList.add('d-none'), 4000);
     }
 
+    const csrfToken = () =>
+        document.querySelector('#antiForgeryForm input[name="__RequestVerificationToken"]')?.value;
+
     async function post(path, query) {
         const url = query ? `${api}${path}?${query}` : `${api}${path}`;
-        const res = await fetch(url, { method: 'POST', credentials: 'same-origin' });
+        const token = csrfToken();
+        const headers = token ? { RequestVerificationToken: token } : {};
+        const res = await fetch(url, { method: 'POST', credentials: 'same-origin', headers });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data.message || res.statusText);
         return data;
@@ -169,7 +174,9 @@
 
     el('btnEnrichStart').addEventListener('click', async () => {
         try {
-            await post('/import/enrich/start');
+            const overwrite = el('enrichOverwrite')?.checked;
+            const query = overwrite ? 'overwrite=true' : '';
+            await post('/import/enrich/start', query);
             toast('Збагачення запущено');
             refreshDashboard();
             startPolling();

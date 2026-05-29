@@ -6,8 +6,11 @@ namespace GameDB.Application.Services;
 
 public sealed class IgdbDescriptionMapper
 {
-    public void ApplyDescription(Game game, IgdbGameDto dto)
+    public void ApplyDescription(Game game, IgdbGameDto dto, bool overwriteExisting)
     {
+        if (!overwriteExisting && !string.IsNullOrWhiteSpace(game.Description))
+            return;
+
         game.Description = FormatAsSteamHtml(dto.summary, dto.storyline);
         game.UpdatedAt = DateTime.UtcNow;
     }

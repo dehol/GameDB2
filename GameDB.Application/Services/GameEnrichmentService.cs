@@ -21,6 +21,7 @@ public sealed class GameEnrichmentService(
         GameEnrichmentImportState state,
         CancellationToken ct = default)
     {
+        var overwriteExisting = state.OverwriteExisting;
         foreach (var appId in appIds)
         {
             if (ct.IsCancellationRequested || !state.IsImporting)
@@ -28,7 +29,7 @@ public sealed class GameEnrichmentService(
 
             try
             {
-                await EnrichSingleGameAsync(appId, ct);
+                await EnrichSingleGameAsync(appId, overwriteExisting, ct);
                 await Task.Delay(_options.DelayBetweenRequestsMs, ct);
             }
             catch (Exception ex)
@@ -38,7 +39,7 @@ public sealed class GameEnrichmentService(
         }
     }
 
-    private async Task EnrichSingleGameAsync(int appId, CancellationToken ct)
+    private async Task EnrichSingleGameAsync(int appId, bool overwriteExisting, CancellationToken ct)
     {
         var game = await games.GetBySteamIdAsync(appId, ct);
         if (game is null) return;
@@ -51,24 +52,27 @@ public sealed class GameEnrichmentService(
             return;
         }
 
-        await steamSpyMapper.ApplyAsync(game, spy, games, ct);
+        await steamSpyMapper.ApplyAsync(game, spy, games, overwriteExisting, ct);
 
-        var igdb = await igdbClient.GetBySteamIdAsync(appId, ct);
-        if (igdb is null)
+        if (overwriteExisting || string.IsNullOrWhiteSpace(game.Description))
         {
-            logger.LogInformation("IGDB: пошук за назвою «{Name}» (AppId {AppId})", game.Name, appId);
-            var searchResults = await igdbClient.SearchGamesAsync(game.Name, ct);
-            igdb = searchResults.FirstOrDefault();
-        }
+            var igdb = await igdbClient.GetBySteamIdAsync(appId, ct);
+            if (igdb is null)
+            {
+                logger.LogInformation("IGDB: пошук за назвою «{Name}» (AppId {AppId})", game.Name, appId);
+                var searchResults = await igdbClient.SearchGamesAsync(game.Name, ct);
+                igdb = searchResults.FirstOrDefault();
+            }
 
-        if (igdb is not null && (!string.IsNullOrWhiteSpace(igdb.summary) || !string.IsNullOrWhiteSpace(igdb.storyline)))
-        {
-            descriptionMapper.ApplyDescription(game, igdb);
-            logger.LogInformation("Збагачено: {Name} (SteamSpy + IGDB опис)", game.Name);
-        }
-        else
-        {
-            logger.LogWarning("IGDB: опис не знайдено для {Name} (AppId {AppId})", game.Name, appId);
+            if (igdb is not null && (!string.IsNullOrWhiteSpace(igdb.summary) || !string.IsNullOrWhiteSpace(igdb.storyline)))
+            {
+                descriptionMapper.ApplyDescription(game, igdb, overwriteExisting);
+                logger.LogInformation("Збагачено: {Name} (SteamSpy + IGDB опис)", game.Name);
+            }
+            else
+            {
+                logger.LogWarning("IGDB: опис не знайдено для {Name} (AppId {AppId})", game.Name, appId);
+            }
         }
 
         await games.UpdateAsync(game, ct);

@@ -29,6 +29,7 @@ public class AdminController : ControllerBase
         => _admin.GetGamesAsync(filter, page, pageSize, search, ct);
 
     [HttpPost("import/basic")]
+    [ValidateAntiForgeryToken]
     public async Task<IActionResult> ImportBasic(CancellationToken ct)
     {
         var imported = await _admin.ImportBasicGamesAsync(ct);
@@ -36,13 +37,15 @@ public class AdminController : ControllerBase
     }
 
     [HttpPost("import/enrich/start")]
-    public IActionResult StartEnrichment()
+    [ValidateAntiForgeryToken]
+    public IActionResult StartEnrichment([FromQuery] bool overwrite = false)
     {
-        _admin.StartEnrichmentImport();
+        _admin.StartEnrichmentImport(overwrite);
         return Accepted(new { message = "Збагачення (SteamSpy + IGDB) запущено." });
     }
 
     [HttpPost("import/enrich/stop")]
+    [ValidateAntiForgeryToken]
     public IActionResult StopEnrichment()
     {
         _admin.StopEnrichmentImport();
@@ -50,13 +53,15 @@ public class AdminController : ControllerBase
     }
 
     [HttpPost("import/details/start")]
-    public IActionResult StartDetailsLegacy()
+    [ValidateAntiForgeryToken]
+    public IActionResult StartDetailsLegacy([FromQuery] bool overwrite = false)
     {
-        _admin.StartEnrichmentImport();
+        _admin.StartEnrichmentImport(overwrite);
         return Accepted(new { message = "Збагачення (SteamSpy + IGDB) запущено." });
     }
 
     [HttpPost("import/details/stop")]
+    [ValidateAntiForgeryToken]
     public IActionResult StopDetails()
     {
         _admin.StopEnrichmentImport();
@@ -64,6 +69,7 @@ public class AdminController : ControllerBase
     }
 
     [HttpPost("import/prices/start")]
+    [ValidateAntiForgeryToken]
     public IActionResult StartPrices([FromQuery] int batchSize = 100)
     {
         if (!_admin.StartPriceSync(batchSize))
@@ -73,6 +79,7 @@ public class AdminController : ControllerBase
     }
 
     [HttpPost("import/prices/stop")]
+    [ValidateAntiForgeryToken]
     public IActionResult StopPrices()
     {
         _admin.StopPriceSync();

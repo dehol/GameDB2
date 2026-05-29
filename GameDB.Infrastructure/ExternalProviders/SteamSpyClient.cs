@@ -3,6 +3,8 @@ using System.Text.Json;
 using GameDB.Application.DTOs;
 using GameDB.Application.Interfaces;
 using Microsoft.Extensions.Configuration;
+using System.Collections.Generic;
+using System.Linq;
 
 namespace GameDB.Infrastructure.ExternalProviders;
 
@@ -41,6 +43,43 @@ public sealed class SteamSpyClient : ISteamSpyClient
         catch (JsonException)
         {
             return null;
+        }
+    }
+
+    public async Task<IReadOnlyCollection<SteamSpyAppListItemDto>> GetAppListAsync(CancellationToken ct = default)
+    {
+        var url = $"{_baseUrl.TrimEnd('/')}?request=all";
+        var response = await _httpClient.GetAsync(url, ct);
+
+        if (!response.IsSuccessStatusCode)
+            return [];
+
+        var json = await response.Content.ReadAsStringAsync(ct);
+        if (string.IsNullOrWhiteSpace(json) || json == "null")
+            return [];
+
+        try
+        {
+            var data = JsonSerializer.Deserialize<Dictionary<string, SteamSpyAppListItemDto>>(json, JsonOptions);
+            if (data == null || data.Count == 0)
+                return [];
+
+            foreach (var (key, item) in data)
+            {
+                if (item is null) continue;
+                if (item.AppId == 0 && int.TryParse(key, out var appId))
+                    item.AppId = appId;
+            }
+
+            return data.Values
+                .Where(item => item is not null &&
+                               item.AppId > 0 &&
+                               !string.IsNullOrWhiteSpace(item.Name))
+                .ToList();
+        }
+        catch (JsonException)
+        {
+            return [];
         }
     }
 }

@@ -594,63 +594,48 @@ public class AuthController : Controller
 ## ЕТАП 6 — Steam імпорт (Phase 1 — App List)
 **Час: 4–5 годин**
 
-Мета: завантажити список ~100k ігор зі Steam і зберегти в БД.
+Мета: завантажити базовий список appid + назва через SteamSpy і зберегти в БД.
 
-### 6.1 Створи SteamApiClient
+### 6.1 Створи SteamSpyClient (App List через SteamSpy)
 
 ```csharp
-// GameDB.Infrastructure/ExternalProviders/Steam/SteamApiClient.cs
+// GameDB.Infrastructure/ExternalProviders/SteamSpyClient.cs
 using System.Text.Json;
 
-namespace GameDB.Infrastructure.ExternalProviders.Steam;
+namespace GameDB.Infrastructure.ExternalProviders;
 
-public class SteamApiClient
+public class SteamSpyClient
 {
     private readonly HttpClient _http;
-    private readonly string _apiKey;
+    private readonly string _baseUrl;
 
-    public SteamApiClient(HttpClient http, IConfiguration config)
+    public SteamSpyClient(HttpClient http, IConfiguration config)
     {
         _http = http;
-        _apiKey = config["Steam:ApiKey"]!;
+        _baseUrl = config["SteamSpy:BaseUrl"] ?? "https://steamspy.com/api.php";
     }
 
-    // Отримати повний список ігор Steam (~100k)
-    public async Task<List<SteamAppSummary>> GetAppListAsync(CancellationToken ct = default)
+    // Отримати базовий список appid + назва
+    public async Task<IReadOnlyCollection<SteamSpyAppListItemDto>> GetAppListAsync(CancellationToken ct = default)
     {
-        var url = "https://api.steampowered.com/ISteamApps/GetAppList/v2/";
-        var json = await _http.GetStringAsync(url, ct);
-        var doc = JsonDocument.Parse(json);
-        var apps = doc.RootElement
-            .GetProperty("applist")
-            .GetProperty("apps")
-            .Deserialize<List<SteamAppSummary>>()!;
-        return apps;
-    }
+        var url = $"{_baseUrl.TrimEnd('/')}?request=all";
+        var response = await _http.GetAsync(url, ct);
+        if (!response.IsSuccessStatusCode) return [];
 
-    // Отримати деталі однієї гри
-    public async Task<SteamAppDetails?> GetAppDetailsAsync(int appId, CancellationToken ct = default)
-    {
-        var url = $"https://store.steampowered.com/api/appdetails?appids={appId}&cc=us&l=en";
-        var json = await _http.GetStringAsync(url, ct);
-        var doc = JsonDocument.Parse(json);
-        var appNode = doc.RootElement.GetProperty(appId.ToString());
-
-        if (!appNode.GetProperty("success").GetBoolean())
-            return null;
-
-        return appNode.GetProperty("data").Deserialize<SteamAppDetails>();
+        var json = await response.Content.ReadAsStringAsync(ct);
+        var data = JsonSerializer.Deserialize<Dictionary<string, SteamSpyAppListItemDto>>(json);
+        return data?.Values
+            .Where(item => item is not null && item.AppId > 0 && !string.IsNullOrWhiteSpace(item.Name))
+            .ToList() ?? [];
     }
 }
-
-public record SteamAppSummary(int appid, string name);
 ```
 
 ### 6.2 Зареєструй HttpClient
 
 ```csharp
 // Program.cs
-builder.Services.AddHttpClient<SteamApiClient>();
+builder.Services.AddHttpClient<ISteamSpyClient, SteamSpyClient>();
 ```
 
 ### 6.3 Створи ImportService (Phase 1)
@@ -660,18 +645,18 @@ builder.Services.AddHttpClient<SteamApiClient>();
 public class ImportService
 {
     private readonly AppDbContext _db;
-    private readonly SteamApiClient _steam;
+    private readonly ISteamSpyClient _steamSpy;
 
-    public ImportService(AppDbContext db, SteamApiClient steam)
+    public ImportService(AppDbContext db, ISteamSpyClient steamSpy)
     {
         _db = db;
-        _steam = steam;
+        _steamSpy = steamSpy;
     }
 
     // Phase 1: Швидкий seed — тільки назви і AppId
     public async Task SeedAppListAsync(CancellationToken ct = default)
     {
-        var apps = await _steam.GetAppListAsync(ct);
+        var apps = await _steamSpy.GetAppListAsync(ct);
 
         // Отримай існуючі AppId щоб не дублювати
         var existingIds = await _db.Games
@@ -679,13 +664,13 @@ public class ImportService
             .ToHashSetAsync(ct);
 
         var newGames = apps
-            .Where(a => !existingIds.Contains(a.appid))
-            .Where(a => !string.IsNullOrWhiteSpace(a.name))
+            .Where(a => !existingIds.Contains(a.AppId))
+            .Where(a => !string.IsNullOrWhiteSpace(a.Name))
             .Select(a => new Game
             {
-                Name = a.name,
-                SteamAppId = a.appid,
-                Slug = GenerateSlug(a.name, a.appid),
+                Name = a.Name,
+                SteamAppId = a.AppId,
+                Slug = GenerateSlug(a.Name, a.AppId),
                 ContentType = "main_game",  // уточниться при Phase 2
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow

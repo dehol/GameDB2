@@ -15,4 +15,6 @@ public sealed class GameEnrichmentImportState
     public int LastBatchSize { get; set; }
     public string? LastMessage { get; set; }
     public string? LastError { get; set; }
+    public bool OverwriteExisting { get; set; }
+    public int OverwriteSkip { get; set; }
 }
