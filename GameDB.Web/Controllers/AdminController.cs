@@ -35,22 +35,32 @@ public class AdminController : ControllerBase
         return Ok(new { imported });
     }
 
-    [HttpPost("import/details/start")]
-    public IActionResult StartDetails([FromQuery] string source = "steam")
+    [HttpPost("import/enrich/start")]
+    public IActionResult StartEnrichment()
     {
-        if (!string.Equals(source, "steam", StringComparison.OrdinalIgnoreCase) &&
-            !string.Equals(source, "igdb", StringComparison.OrdinalIgnoreCase))
-            return BadRequest(new { message = "source має бути steam або igdb." });
+        _admin.StartEnrichmentImport();
+        return Accepted(new { message = "Збагачення (SteamSpy + IGDB) запущено." });
+    }
 
-        _admin.StartDetailsImport(source);
-        return Accepted(new { message = $"Імпорт деталей ({source}) запущено." });
+    [HttpPost("import/enrich/stop")]
+    public IActionResult StopEnrichment()
+    {
+        _admin.StopEnrichmentImport();
+        return Ok(new { message = "Збагачення зупинено." });
+    }
+
+    [HttpPost("import/details/start")]
+    public IActionResult StartDetailsLegacy()
+    {
+        _admin.StartEnrichmentImport();
+        return Accepted(new { message = "Збагачення (SteamSpy + IGDB) запущено." });
     }
 
     [HttpPost("import/details/stop")]
     public IActionResult StopDetails()
     {
-        _admin.StopDetailsImport();
-        return Ok(new { message = "Імпорт деталей зупинено." });
+        _admin.StopEnrichmentImport();
+        return Ok(new { message = "Збагачення зупинено." });
     }
 
     [HttpPost("import/prices/start")]
@@ -59,7 +69,7 @@ public class AdminController : ControllerBase
         if (!_admin.StartPriceSync(batchSize))
             return Conflict(new { message = "Синхронізація цін уже виконується." });
 
-        return Accepted(new { message = "Синхронізацію цін запущено." });
+        return Accepted(new { message = "Синхронізацію цін (SteamSpy) запущено." });
     }
 
     [HttpPost("import/prices/stop")]

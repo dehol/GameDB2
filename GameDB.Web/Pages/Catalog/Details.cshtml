@@ -63,10 +63,20 @@
 
     @if (g.Genres.Count > 0)
     {
-      <div class="mb-3">
+      <div class="mb-2">
         @foreach (var genre in g.Genres)
         {
-          <span class="badge bg-secondary">@genre</span>
+          <span class="badge bg-secondary me-1">@genre</span>
+        }
+      </div>
+    }
+
+    @if (g.Tags.Count > 0)
+    {
+      <div class="mb-3">
+        @foreach (var tag in g.Tags)
+        {
+          <span class="badge bg-info text-dark me-1">@tag</span>
         }
       </div>
     }

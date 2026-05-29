@@ -1,4 +1,4 @@
-﻿namespace GameDB.Domain.Entities;
+namespace GameDB.Domain.Entities;
 
 public partial class Game
 {
@@ -40,4 +40,6 @@ public partial class Game
 
     public virtual ICollection<Wishlist> Wishlists { get; set; } = new List<Wishlist>();
     public virtual ICollection<Genre> Genres { get; set; } = new List<Genre>();
+
+    public virtual ICollection<Tag> Tags { get; set; } = new List<Tag>();
 }

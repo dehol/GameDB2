@@ -1,41 +1,26 @@
 GET http://localhost:5295/catalog
 ###
-POST http://localhost:5295/api/steam/import-basic
+POST http://localhost:5295/api/admin/import/basic
 ###
-POST http://localhost:5295/api/steam/details/start
+POST http://localhost:5295/api/admin/import/enrich/start
 ###
-POST http://localhost:5295/api/steam/details/stop
+POST http://localhost:5295/api/admin/import/enrich/stop
 ###
-GET http://localhost:5295/api/steam/details/status
+POST http://localhost:5295/api/admin/import/prices/start?batchSize=100
 ###
-GET https://api.isthereanydeal.com/games/info/v2?key=7bd712b455dc2e3762b376e9f2ea3a92ecddf983&id=018d937f-51f4-727c-95c0-ba550d156c86
-Content-Type: application/json
-
-[
-  "018d937f-07fc-72ed-8517-d8e24cb1eb22"
-]
+POST http://localhost:5295/api/admin/import/prices/stop
 ###
-POST https://api.isthereanydeal.com/games/prices/v3?key=7bd712b455dc2e3762b376e9f2ea3a92ecddf983&country=UA&nondeals=true&shops=61
-Content-Type: application/json
-
-[
-  "018d937f-51f4-727c-95c0-ba550d156c86"
-]
+GET http://localhost:5295/api/admin/dashboard
 ###
-POST https://api.isthereanydeal.com/lookup/id/shop/61/v1?key=7bd712b455dc2e3762b376e9f2ea3a92ecddf983
-Content-Type: application/json
-
-[
-  "app/632470"
-]
+GET https://steamspy.com/api.php?request=appdetails&appid=730
 ###
-POST https://id.twitch.tv/oauth2/token?client_id=5tbrr5lisv5uomqf69f7tu35qqpguv&client_secret=25ukjitxzg4kz0z2yimgekb31bylmw&grant_type=client_credentials
+POST https://id.twitch.tv/oauth2/token?client_id=&client_secret=&grant_type=client_credentials
 ###
 POST https://api.igdb.com/v4/games
-Client-ID: 5tbrr5lisv5uomqf69f7tu35qqpguv
-Authorization: Bearer o8b8xa6t4ip5i5mmxx3cb22csm43q7
+Client-ID:
+Authorization: Bearer
 Content-Type: text/plain
 
-search "Brageskålen";
-fields name, summary, storyline, first_release_date, rating, rating_count, cover.image_id, genres.name, involved_companies.company.name, involved_companies.developer, involved_companies.publisher; 
+search "Counter-Strike";
+fields name, summary, storyline;
 limit 1;

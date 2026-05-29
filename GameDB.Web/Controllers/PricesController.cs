@@ -13,18 +13,18 @@ public class PricesController : ControllerBase
 {
     private readonly IGameOfferRepository _offerRepository;
     private readonly IGameRepository _gameRepository;
-    private readonly ItadPriceSyncService _itadSyncService;
+    private readonly SteamSpyPriceSyncService _priceSyncService;
     private readonly ILogger<PricesController> _logger;
 
     public PricesController(
         IGameOfferRepository offerRepository,
         IGameRepository gameRepository,
-        ItadPriceSyncService itadSyncService,
+        SteamSpyPriceSyncService priceSyncService,
         ILogger<PricesController> logger)
     {
         _offerRepository = offerRepository;
         _gameRepository = gameRepository;
-        _itadSyncService = itadSyncService;
+        _priceSyncService = priceSyncService;
         _logger = logger;
     }
 
@@ -66,7 +66,7 @@ public class PricesController : ControllerBase
     {
         if (batchSize <= 0 || batchSize > 200)
         {
-            return BadRequest(new { message = "Розмір батчу має бути в межах від 1 до 200 (ліміт ITAD API)." });
+            return BadRequest(new { message = "Розмір батчу має бути в межах від 1 до 200." });
         }
 
         _logger.LogInformation("🔄 Запущено ручну синхронізацію цін. Передаємо процес у фоновий потік...");
@@ -78,7 +78,7 @@ public class PricesController : ControllerBase
             // Створюємо новий Scope для доступу до бази даних у фоні
             using var scope = HttpContext.RequestServices.CreateScope();
             var gameRepo = scope.ServiceProvider.GetRequiredService<IGameRepository>();
-            var itadSync = scope.ServiceProvider.GetRequiredService<ItadPriceSyncService>();
+            var priceSync = scope.ServiceProvider.GetRequiredService<SteamSpyPriceSyncService>();
             var bgLogger = scope.ServiceProvider.GetRequiredService<ILogger<PricesController>>();
 
             try
@@ -96,7 +96,7 @@ public class PricesController : ControllerBase
 
                     if (batch.Any())
                     {
-                        await itadSync.SyncPricesBatchAsync(batch);
+                        await priceSync.SyncPricesBatchAsync(batch);
                     }
                     else
                     {

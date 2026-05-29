@@ -1,6 +1,6 @@
 namespace GameDB.Application.Services;
 
-public sealed class IgdbImportState
+public sealed class GameEnrichmentImportState
 {
     private volatile bool _isImporting;
 

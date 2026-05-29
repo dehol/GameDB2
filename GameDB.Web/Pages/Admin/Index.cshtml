@@ -72,29 +72,23 @@
 
         <div class="col-lg-4">
             <div class="admin-panel">
-                <h2 class="h6 admin-panel-title">Деталі ігор</h2>
+                <h2 class="h6 admin-panel-title">Збагачення ігор</h2>
                 <p class="small text-muted mb-2">
-                    Черга без опису: <strong id="pendingDetails">—</strong>
+                    SteamSpy (метадані, жанри, теги) + IGDB (опис). Черга без опису: <strong id="pendingDetails">—</strong>
                 </p>
-                <div class="d-flex gap-2 mb-2 flex-wrap">
-                    <button type="button" class="btn btn-success btn-sm flex-grow-1" id="btnDetailsSteam">
-                        ▶ Steam worker
-                    </button>
-                    <button type="button" class="btn btn-success btn-sm flex-grow-1" id="btnDetailsIgdb">
-                        ▶ IGDB worker
-                    </button>
-                </div>
-                <button type="button" class="btn btn-outline-danger btn-sm w-100" id="btnDetailsStop">
-                    ■ Зупинити деталі
+                <button type="button" class="btn btn-success btn-sm w-100 mb-2" id="btnEnrichStart">
+                    ▶ Збагачення (SteamSpy + IGDB)
                 </button>
-                <div class="admin-job-status mt-2" id="steamJobStatus"></div>
-                <div class="admin-job-status" id="igdbJobStatus"></div>
+                <button type="button" class="btn btn-outline-danger btn-sm w-100" id="btnEnrichStop">
+                    ■ Зупинити збагачення
+                </button>
+                <div class="admin-job-status mt-2" id="enrichmentJobStatus"></div>
             </div>
         </div>
 
         <div class="col-lg-4">
             <div class="admin-panel">
-                <h2 class="h6 admin-panel-title">Ціни (ITAD)</h2>
+                <h2 class="h6 admin-panel-title">Ціни (SteamSpy)</h2>
                 <p class="small text-muted mb-2">
                     Остання синхронізація: <span id="lastPriceSync">—</span>
                 </p>

@@ -166,6 +166,7 @@ public sealed class CatalogRepository : ICatalogRepository
             .Include(g => g.Developer)
             .Include(g => g.Publisher)
             .Include(g => g.Genres)
+            .Include(g => g.Tags)
             .Include(g => g.GameOffers).ThenInclude(o => o.Shop)
             .FirstOrDefaultAsync(g => g.GameId == gameId, ct);
 
@@ -198,6 +199,7 @@ public sealed class CatalogRepository : ICatalogRepository
             DeveloperName: game.Developer?.Name,
             PublisherName: game.Publisher?.Name,
             Genres:        game.Genres.Select(g => g.Name).OrderBy(n => n).ToList(),
+            Tags:          game.Tags.Select(t => t.Name).OrderBy(n => n).ToList(),
             SteamAppId:    game.SteamAppId,
             Offers:        offers
         );

@@ -74,15 +74,7 @@ public class IgdbClient : IIgdbClient
         await _rateLimiter.AcquireAsync(ct);
         var detailResp = await SendQueryAsync(
             "https://api.igdb.com/v4/games",
-            $"""
-            fields name, summary, storyline, first_release_date, rating, rating_count,
-                   cover.image_id, genres.name,
-                   involved_companies.company.name,
-                   involved_companies.developer,
-                   involved_companies.publisher;
-            where id = {igdbId};
-            limit 1;
-            """,
+            $"fields name, summary, storyline; where id = {igdbId}; limit 1;",
             ct);
 
         if (detailResp is null) return null;
@@ -98,15 +90,7 @@ public class IgdbClient : IIgdbClient
 
         var resp = await SendQueryAsync(
             "https://api.igdb.com/v4/games",
-            $"""
-            search "{gameName.Replace("\"", "\\\"")}";
-            fields name, summary, storyline, first_release_date, rating, rating_count,
-                   cover.image_id, genres.name,
-                   involved_companies.company.name,
-                   involved_companies.developer,
-                   involved_companies.publisher;
-            limit 5;
-            """,
+            $"search \"{gameName.Replace("\"", "\\\"")}\"; fields name, summary, storyline; limit 1;",
             ct);
 
         if (resp is null) return Array.Empty<IgdbGameDto>();

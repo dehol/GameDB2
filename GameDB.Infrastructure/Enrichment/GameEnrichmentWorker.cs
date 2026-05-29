@@ -1,16 +1,16 @@
-using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.DependencyInjection;
 using GameDB.Application.Interfaces;
 using GameDB.Application.Services;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 
-namespace GameDB.Infrastructure.Igdb;
+namespace GameDB.Infrastructure.Enrichment;
 
-public class IgdbDetailsWorker : BackgroundService
+public sealed class GameEnrichmentWorker : BackgroundService
 {
     private readonly IServiceProvider _serviceProvider;
-    private readonly IgdbImportState _state;
+    private readonly GameEnrichmentImportState _state;
 
-    public IgdbDetailsWorker(IServiceProvider serviceProvider, IgdbImportState state)
+    public GameEnrichmentWorker(IServiceProvider serviceProvider, GameEnrichmentImportState state)
     {
         _serviceProvider = serviceProvider;
         _state = state;
@@ -30,12 +30,11 @@ public class IgdbDetailsWorker : BackgroundService
             {
                 using var scope = _serviceProvider.CreateScope();
                 var gamesRepo = scope.ServiceProvider.GetRequiredService<IGameRepository>();
-                var igdbService = scope.ServiceProvider.GetRequiredService<FastIgdbImportService>();
+                var enrichment = scope.ServiceProvider.GetRequiredService<GameEnrichmentService>();
 
-                // Process batches until none left or import stopped
                 while (_state.IsImporting && !stoppingToken.IsCancellationRequested)
                 {
-                    var appIds = await gamesRepo.GetAppIdsWithoutDetailsAsync(200);
+                    var appIds = await gamesRepo.GetAppIdsWithoutDetailsAsync(200, stoppingToken);
                     if (appIds.Count == 0)
                     {
                         _state.IsImporting = false;
@@ -45,13 +44,14 @@ public class IgdbDetailsWorker : BackgroundService
                     }
 
                     _state.LastBatchSize = appIds.Count;
-                    _state.LastMessage = $"IGDB батч: {appIds.Count} ігор…";
-                    await igdbService.ImportDetailsFastAsync(appIds, stoppingToken);
+                    _state.LastMessage = $"Збагачення: {appIds.Count} ігор…";
+                    await enrichment.ImportBatchAsync(appIds, _state, stoppingToken);
                 }
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"IGDB worker error: {ex.Message}");
+                _state.LastError = ex.Message;
+                Console.WriteLine($"GameEnrichment worker error: {ex.Message}");
                 await Task.Delay(10000, stoppingToken);
             }
         }

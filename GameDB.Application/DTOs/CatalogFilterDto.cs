@@ -92,6 +92,7 @@ public record GameDetailDto(
     string?  DeveloperName,
     string?  PublisherName,
     List<string> Genres,
+    List<string> Tags,
     int?     SteamAppId,
     List<GameOfferDto> Offers
 );

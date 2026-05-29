@@ -13,8 +13,8 @@ public interface IAdminService
         CancellationToken ct = default);
 
     Task<int> ImportBasicGamesAsync(CancellationToken ct = default);
-    void StartDetailsImport(string source);
-    void StopDetailsImport();
+    void StartEnrichmentImport();
+    void StopEnrichmentImport();
     bool StartPriceSync(int batchSize);
     void StopPriceSync();
 }

@@ -13,6 +13,7 @@ public sealed class GameRepository(AppDbContext db) : IGameRepository
     public Task<Game?> GetBySteamIdAsync(int steamAppId, CancellationToken ct = default)
         => db.Games
             .Include(g => g.Genres)
+            .Include(g => g.Tags)
             .FirstOrDefaultAsync(g => g.SteamAppId == steamAppId, ct);
 
     public async Task<HashSet<int>> GetExistingSteamAppIdsAsync(CancellationToken ct = default)
@@ -24,7 +25,7 @@ public sealed class GameRepository(AppDbContext db) : IGameRepository
         return [..ids];
     }
 
-    // PERF-4 note: checks both null AND empty string to match behavior in FastIgdbImportService
+    // PERF-4: checks both null AND empty string — queue for enrichment worker
     public Task<List<int>> GetAppIdsWithoutDetailsAsync(int count, CancellationToken ct = default)
         => db.Games
             .Where(g => g.SteamAppId != null &&
@@ -98,6 +99,16 @@ public sealed class GameRepository(AppDbContext db) : IGameRepository
             name).ConfigureAwait(false);
 
         var dataEntity = await db.Set<Genre>().FirstAsync(g => g.Name == name).ConfigureAwait(false);
+        return dataEntity;
+    }
+
+    public async Task<Tag> GetOrCreateTagAsync(string name)
+    {
+        await db.Database.ExecuteSqlRawAsync(
+            "INSERT INTO \"Tag\" (\"Name\") VALUES ({0}) ON CONFLICT (\"Name\") DO NOTHING",
+            name).ConfigureAwait(false);
+
+        var dataEntity = await db.Set<Tag>().FirstAsync(t => t.Name == name).ConfigureAwait(false);
         return dataEntity;
     }
 }

@@ -56,11 +56,10 @@
         el('pendingDetails').textContent = d.pendingDetailsCount;
         el('lastPriceSync').textContent = fmtDate(s.lastPriceSyncAt);
 
-        el('steamJobStatus').innerHTML = jobHtml(d.steamDetails, 'Steam');
-        el('igdbJobStatus').innerHTML = jobHtml(d.igdbDetails, 'IGDB');
+        el('enrichmentJobStatus').innerHTML = jobHtml(d.gameEnrichment, 'Збагачення');
 
         const price = d.priceSync;
-        el('priceJobStatus').innerHTML = jobHtml(price, 'ITAD');
+        el('priceJobStatus').innerHTML = jobHtml(price, 'SteamSpy');
 
         const wrap = el('priceProgressWrap');
         if (price.isRunning && price.processed != null) {
@@ -168,26 +167,19 @@
         }
     });
 
-    el('btnDetailsSteam').addEventListener('click', async () => {
+    el('btnEnrichStart').addEventListener('click', async () => {
         try {
-            await post('/import/details/start', 'source=steam');
-            toast('Steam details worker запущено');
+            await post('/import/enrich/start');
+            toast('Збагачення запущено');
             refreshDashboard();
+            startPolling();
         } catch (e) { toast(e.message, true); }
     });
 
-    el('btnDetailsIgdb').addEventListener('click', async () => {
+    el('btnEnrichStop').addEventListener('click', async () => {
         try {
-            await post('/import/details/start', 'source=igdb');
-            toast('IGDB worker запущено');
-            refreshDashboard();
-        } catch (e) { toast(e.message, true); }
-    });
-
-    el('btnDetailsStop').addEventListener('click', async () => {
-        try {
-            await post('/import/details/stop');
-            toast('Деталі зупинено');
+            await post('/import/enrich/stop');
+            toast('Збагачення зупинено');
             refreshDashboard();
         } catch (e) { toast(e.message, true); }
     });

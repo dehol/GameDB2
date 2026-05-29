@@ -34,8 +34,7 @@ public record ImportJobStatusDto(
 
 public record AdminDashboardDto(
     AdminStatsDto Stats,
-    ImportJobStatusDto SteamDetails,
-    ImportJobStatusDto IgdbDetails,
+    ImportJobStatusDto GameEnrichment,
     ImportJobStatusDto PriceSync,
     int PendingDetailsCount);
 

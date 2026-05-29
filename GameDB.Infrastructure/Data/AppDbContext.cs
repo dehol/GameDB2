@@ -27,6 +27,8 @@ public partial class AppDbContext : DbContext
 
     public virtual DbSet<Genre> Genres { get; set; }
 
+    public virtual DbSet<Tag> Tags { get; set; }
+
     public virtual DbSet<Notification> Notifications { get; set; }
 
     public virtual DbSet<PriceHistory> PriceHistories { get; set; }
@@ -99,6 +101,18 @@ public partial class AppDbContext : DbContext
                         j.ToTable("GameGenre");
                         j.HasIndex(new[] { "GenreId" }, "IX_GameGenre_GenreId");
                     });
+
+            entity.HasMany(d => d.Tags).WithMany(p => p.Games)
+                .UsingEntity<Dictionary<string, object>>(
+                    "GameTag",
+                    r => r.HasOne<Tag>().WithMany().HasForeignKey("TagId"),
+                    l => l.HasOne<Game>().WithMany().HasForeignKey("GameId"),
+                    j =>
+                    {
+                        j.HasKey("GameId", "TagId");
+                        j.ToTable("GameTag");
+                        j.HasIndex(new[] { "TagId" }, "IX_GameTag_TagId");
+                    });
         });
 
         modelBuilder.Entity<GameOffer>(entity =>
@@ -128,6 +142,13 @@ public partial class AppDbContext : DbContext
             entity.ToTable("Genre");
 
             entity.HasIndex(e => e.Name, "IX_Genre_Name").IsUnique();
+        });
+
+        modelBuilder.Entity<Tag>(entity =>
+        {
+            entity.ToTable("Tag");
+
+            entity.HasIndex(e => e.Name, "IX_Tag_Name").IsUnique();
         });
 
         modelBuilder.Entity<Notification>(entity =>

@@ -10,8 +10,7 @@ public sealed class AdminService : IAdminService
     private readonly IAdminRepository _adminRepo;
     private readonly IGameRepository _gameRepo;
     private readonly SteamImportService _steamImport;
-    private readonly SteamImportState _steamState;
-    private readonly IgdbImportState _igdbState;
+    private readonly GameEnrichmentImportState _enrichmentState;
     private readonly PriceSyncState _priceState;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<AdminService> _logger;
@@ -20,8 +19,7 @@ public sealed class AdminService : IAdminService
         IAdminRepository adminRepo,
         IGameRepository gameRepo,
         SteamImportService steamImport,
-        SteamImportState steamState,
-        IgdbImportState igdbState,
+        GameEnrichmentImportState enrichmentState,
         PriceSyncState priceState,
         IServiceScopeFactory scopeFactory,
         ILogger<AdminService> logger)
@@ -29,8 +27,7 @@ public sealed class AdminService : IAdminService
         _adminRepo = adminRepo;
         _gameRepo = gameRepo;
         _steamImport = steamImport;
-        _steamState = steamState;
-        _igdbState = igdbState;
+        _enrichmentState = enrichmentState;
         _priceState = priceState;
         _scopeFactory = scopeFactory;
         _logger = logger;
@@ -43,11 +40,9 @@ public sealed class AdminService : IAdminService
 
         return new AdminDashboardDto(
             stats,
-            ToStatus(_steamState.IsImportingDetails, "steam", _steamState.StartedAt, _steamState.FinishedAt,
-                _steamState.LastBatchSize, _steamState.LastMessage, _steamState.LastError),
-            ToStatus(_igdbState.IsImporting, "igdb", _igdbState.StartedAt, _igdbState.FinishedAt,
-                _igdbState.LastBatchSize, _igdbState.LastMessage, _igdbState.LastError),
-            ToStatus(_priceState.IsRunning, "itad", _priceState.StartedAt, _priceState.FinishedAt,
+            ToStatus(_enrichmentState.IsImporting, "enrichment", _enrichmentState.StartedAt, _enrichmentState.FinishedAt,
+                _enrichmentState.LastBatchSize, _enrichmentState.LastMessage, _enrichmentState.LastError),
+            ToStatus(_priceState.IsRunning, "steamspy", _priceState.StartedAt, _priceState.FinishedAt,
                 _priceState.LastBatchSize, _priceState.LastMessage, _priceState.LastError,
                 _priceState.ProcessedGames, _priceState.TotalGames),
             pending);
@@ -64,33 +59,19 @@ public sealed class AdminService : IAdminService
     public Task<int> ImportBasicGamesAsync(CancellationToken ct = default)
         => _steamImport.ImportBasicGamesAsync();
 
-    public void StartDetailsImport(string source)
+    public void StartEnrichmentImport()
     {
-        if (string.Equals(source, "igdb", StringComparison.OrdinalIgnoreCase))
-        {
-            _steamState.IsImportingDetails = false;
-            _igdbState.IsImporting = true;
-            _igdbState.StartedAt = DateTime.UtcNow;
-            _igdbState.FinishedAt = null;
-            _igdbState.LastMessage = "IGDB worker запущено.";
-            _igdbState.LastError = null;
-            return;
-        }
-
-        _igdbState.IsImporting = false;
-        _steamState.IsImportingDetails = true;
-        _steamState.StartedAt = DateTime.UtcNow;
-        _steamState.FinishedAt = null;
-        _steamState.LastMessage = "Steam worker запущено.";
-        _steamState.LastError = null;
+        _enrichmentState.IsImporting = true;
+        _enrichmentState.StartedAt = DateTime.UtcNow;
+        _enrichmentState.FinishedAt = null;
+        _enrichmentState.LastMessage = "Збагачення (SteamSpy + IGDB) запущено.";
+        _enrichmentState.LastError = null;
     }
 
-    public void StopDetailsImport()
+    public void StopEnrichmentImport()
     {
-        _steamState.IsImportingDetails = false;
-        _igdbState.IsImporting = false;
-        _steamState.LastMessage = "Зупинено вручну.";
-        _igdbState.LastMessage = "Зупинено вручну.";
+        _enrichmentState.IsImporting = false;
+        _enrichmentState.LastMessage = "Зупинено вручну.";
     }
 
     public bool StartPriceSync(int batchSize)
@@ -109,13 +90,13 @@ public sealed class AdminService : IAdminService
         {
             using var scope = _scopeFactory.CreateScope();
             var gameRepo = scope.ServiceProvider.GetRequiredService<IGameRepository>();
-            var itadSync = scope.ServiceProvider.GetRequiredService<ItadPriceSyncService>();
+            var priceSync = scope.ServiceProvider.GetRequiredService<SteamSpyPriceSyncService>();
 
             try
             {
                 var total = await gameRepo.GetTotalGamesCountAsync(token);
                 _priceState.ResetProgress(total);
-                _priceState.LastMessage = "Синхронізація цін запущена.";
+                _priceState.LastMessage = "Синхронізація цін (SteamSpy) запущена.";
 
                 for (var skip = 0; skip < total && !token.IsCancellationRequested; skip += batchSize)
                 {
@@ -126,26 +107,26 @@ public sealed class AdminService : IAdminService
                         $"Батч {skip + 1}–{Math.Min(skip + batchSize, total)} з {total}";
 
                     if (batch.Count > 0)
-                        await itadSync.SyncPricesBatchAsync(batch, token);
+                        await priceSync.SyncPricesBatchAsync(batch, token);
                 }
 
                 if (token.IsCancellationRequested)
                 {
                     _priceState.MarkFinished("Синхронізацію зупинено.");
-                    _logger.LogInformation("ITAD sync stopped by admin.");
+                    _logger.LogInformation("SteamSpy price sync stopped by admin.");
                 }
                 else
                 {
                     _priceState.ProcessedGames = total;
                     _priceState.MarkFinished("Синхронізацію завершено.");
-                    _logger.LogInformation("ITAD sync completed.");
+                    _logger.LogInformation("SteamSpy price sync completed.");
                 }
             }
             catch (Exception ex)
             {
                 _priceState.LastError = ex.Message;
                 _priceState.MarkFinished("Помилка синхронізації.");
-                _logger.LogError(ex, "ITAD sync failed.");
+                _logger.LogError(ex, "SteamSpy price sync failed.");
             }
         }, token);
 

@@ -21,4 +21,5 @@ public interface IGameRepository
     Task<Developer> GetOrCreateDeveloperAsync(string name);
     Task<Publisher> GetOrCreatePublisherAsync(string name);
     Task<Genre> GetOrCreateGenreAsync(string name);
+    Task<Tag> GetOrCreateTagAsync(string name);
 }

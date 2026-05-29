@@ -12,15 +12,14 @@ namespace GameDB.Web.Controllers;
 public class GamesController : ControllerBase
 {
     private readonly SteamImportService _steamImportService;
+    private readonly IAdminService _admin;
 
-    public GamesController(SteamImportService steamImportService)
+    public GamesController(SteamImportService steamImportService, IAdminService admin)
     {
         _steamImportService = steamImportService;
+        _admin = admin;
     }
 
-    /// <summary>
-    /// Perform basic import: fetch Steam app list and insert new games (minimal info).
-    /// </summary>
     [HttpPost("steam/basic-import")]
     public async Task<IActionResult> ImportBasic()
     {
@@ -28,45 +27,17 @@ public class GamesController : ControllerBase
         return Ok(new { imported });
     }
 
-    /// <summary>
-    /// Start background worker to import detailed info for games.
-    /// Uses the singleton SteamImportState monitored by the hosted worker.
-    /// </summary>
     [HttpPost("steam/details/start")]
-    public IActionResult StartDetailsImport([FromQuery] string source = "steam",
-        [FromServices] SteamImportState state = null!,
-        [FromServices] IgdbImportState? igdbState = null,
-        [FromServices] FastIgdbImportService? igdbService = null)
+    public IActionResult StartDetailsImport()
     {
-        // Support two sources: steam (background worker) or igdb (fast import)
-        if (string.Equals(source, "steam", StringComparison.OrdinalIgnoreCase))
-        {
-            state.IsImportingDetails = true;
-            return Accepted(new { message = "Фоновий процес імпорту деталей (Steam) запущено." });
-        }
-
-        if (string.Equals(source, "igdb", StringComparison.OrdinalIgnoreCase))
-        {
-            if (igdbState == null)
-                return BadRequest(new { message = "IGDB state not available." });
-
-            // Start the IGDB background worker which will process the full queue
-            igdbState.IsImporting = true;
-            return Accepted(new { message = "Фоновий процес імпорту деталей (IGDB) запущено." });
-        }
-
-        return BadRequest(new { message = "Unknown source. Use 'steam' or 'igdb'." });
+        _admin.StartEnrichmentImport();
+        return Accepted(new { message = "Збагачення (SteamSpy + IGDB) запущено." });
     }
 
-    /// <summary>
-    /// Stop background details import.
-    /// </summary>
     [HttpPost("steam/details/stop")]
-    public IActionResult StopDetailsImport([FromServices] SteamImportState state,
-        [FromServices] IgdbImportState? igdbState = null)
+    public IActionResult StopDetailsImport()
     {
-        state.IsImportingDetails = false;
-        if (igdbState != null) igdbState.IsImporting = false;
-        return Ok(new { message = "Фонові процеси імпорту деталей зупинено." });
+        _admin.StopEnrichmentImport();
+        return Ok(new { message = "Збагачення зупинено." });
     }
 }
