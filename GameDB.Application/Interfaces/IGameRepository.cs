@@ -9,6 +9,7 @@ public interface IGameRepository
     Task<Game?>          GetBySteamIdAsync(int steamAppId, CancellationToken ct = default);
     Task<HashSet<int>>   GetExistingSteamAppIdsAsync(CancellationToken ct = default);
     Task<List<int>>      GetAppIdsWithoutDetailsAsync(int count, CancellationToken ct = default);
+    Task<List<int>>      GetSteamAppIdsBatchAsync(int skip, int take, CancellationToken ct = default);
     Task<int>            GetTotalGamesCountAsync(CancellationToken ct = default);
     Task<List<Game>>     GetGamesBatchAsync(int skip, int take, CancellationToken ct = default);
 

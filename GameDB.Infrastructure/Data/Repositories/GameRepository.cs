@@ -35,6 +35,15 @@ public sealed class GameRepository(AppDbContext db) : IGameRepository
             .Select(g => g.SteamAppId!.Value)
             .ToListAsync(ct);
 
+    public Task<List<int>> GetSteamAppIdsBatchAsync(int skip, int take, CancellationToken ct = default)
+        => db.Games
+            .Where(g => g.SteamAppId != null)
+            .OrderBy(g => g.GameId)
+            .Skip(skip)
+            .Take(take)
+            .Select(g => g.SteamAppId!.Value)
+            .ToListAsync(ct);
+
     public Task<int> GetTotalGamesCountAsync(CancellationToken ct = default)
         => db.Games.CountAsync(ct);
 

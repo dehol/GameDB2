@@ -34,18 +34,26 @@ public sealed class GameEnrichmentWorker : BackgroundService
 
                 while (_state.IsImporting && !stoppingToken.IsCancellationRequested)
                 {
-                    var appIds = await gamesRepo.GetAppIdsWithoutDetailsAsync(200, stoppingToken);
+                    var appIds = _state.OverwriteExisting
+                        ? await gamesRepo.GetSteamAppIdsBatchAsync(_state.OverwriteSkip, 200, stoppingToken)
+                        : await gamesRepo.GetAppIdsWithoutDetailsAsync(200, stoppingToken);
                     if (appIds.Count == 0)
                     {
                         _state.IsImporting = false;
                         _state.FinishedAt = DateTime.UtcNow;
-                        _state.LastMessage = "Усі ігри мають описи.";
+                        _state.LastMessage = _state.OverwriteExisting
+                            ? "Збагачення завершено."
+                            : "Усі ігри мають описи.";
                         break;
                     }
 
                     _state.LastBatchSize = appIds.Count;
-                    _state.LastMessage = $"Збагачення: {appIds.Count} ігор…";
+                    _state.LastMessage = _state.OverwriteExisting
+                        ? $"Збагачення: {_state.OverwriteSkip + 1}–{_state.OverwriteSkip + appIds.Count}…"
+                        : $"Збагачення: {appIds.Count} ігор…";
                     await enrichment.ImportBatchAsync(appIds, _state, stoppingToken);
+                    if (_state.OverwriteExisting)
+                        _state.OverwriteSkip += appIds.Count;
                 }
             }
             catch (Exception ex)

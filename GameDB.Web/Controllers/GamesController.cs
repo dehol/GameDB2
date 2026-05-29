@@ -28,9 +28,9 @@ public class GamesController : ControllerBase
     }
 
     [HttpPost("steam/details/start")]
-    public IActionResult StartDetailsImport()
+    public IActionResult StartDetailsImport([FromQuery] bool overwrite = false)
     {
-        _admin.StartEnrichmentImport();
+        _admin.StartEnrichmentImport(overwrite);
         return Accepted(new { message = "Збагачення (SteamSpy + IGDB) запущено." });
     }
 

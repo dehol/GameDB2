@@ -12,6 +12,7 @@ public class SteamImportService
 {
     private readonly IGameRepository _games;
     private readonly ISteamClient _steamClient;
+    private readonly ISteamSpyClient _steamSpy;
     private readonly SteamGameFilter _filter;
     private readonly GameMapper _mapper;
     private readonly ILogger<SteamImportService> _logger;
@@ -19,7 +20,8 @@ public class SteamImportService
 
     public SteamImportService(
         IGameRepository games, 
-        ISteamClient steamClient, 
+        ISteamClient steamClient,
+        ISteamSpyClient steamSpy,
         SteamGameFilter filter, 
         GameMapper mapper,
         ILogger<SteamImportService> logger,
@@ -27,6 +29,7 @@ public class SteamImportService
     {
         _games = games;
         _steamClient = steamClient;
+        _steamSpy = steamSpy;
         _filter = filter;
         _mapper = mapper;
         _logger = logger;
@@ -36,15 +39,39 @@ public class SteamImportService
     public async Task<int> ImportBasicGamesAsync()
     {
         var steamGames = await _steamClient.GetAppListAsync();
+        IReadOnlyCollection<SteamSpyAppListItemDto> steamSpyGames = [];
+        try
+        {
+            steamSpyGames = await _steamSpy.GetAppListAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "SteamSpy app list import failed");
+        }
         var existingIds = await _games.GetExistingSteamAppIdsAsync();
 
-        var newGames = steamGames
-            .Where(sg => !existingIds.Contains(sg.appid))
-            .Where(sg => _filter.IsValidName(sg.name))
-            .Select(sg => new Game
+        var appMap = new Dictionary<int, string>();
+        foreach (var sg in steamGames)
+        {
+            if (sg.appid <= 0 || string.IsNullOrWhiteSpace(sg.name)) continue;
+            if (!appMap.ContainsKey(sg.appid))
+                appMap[sg.appid] = sg.name;
+        }
+
+        foreach (var sg in steamSpyGames)
+        {
+            if (sg.AppId <= 0 || string.IsNullOrWhiteSpace(sg.Name)) continue;
+            if (!appMap.ContainsKey(sg.AppId))
+                appMap[sg.AppId] = sg.Name;
+        }
+
+        var newGames = appMap
+            .Where(kv => !existingIds.Contains(kv.Key))
+            .Where(kv => _filter.IsValidName(kv.Value))
+            .Select(kv => new Game
             {
-                SteamAppId = sg.appid,
-                Name = sg.name,
+                SteamAppId = kv.Key,
+                Name = kv.Value,
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow
             })

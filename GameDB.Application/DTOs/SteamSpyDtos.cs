@@ -37,3 +37,12 @@ public sealed class SteamSpyAppDetailsDto
     [JsonPropertyName("tags")]
     public Dictionary<string, int>? Tags { get; set; }
 }
+
+public sealed class SteamSpyAppListItemDto
+{
+    [JsonPropertyName("appid")]
+    public int AppId { get; set; }
+
+    [JsonPropertyName("name")]
+    public string? Name { get; set; }
+}

@@ -169,7 +169,9 @@
 
     el('btnEnrichStart').addEventListener('click', async () => {
         try {
-            await post('/import/enrich/start');
+            const overwrite = el('enrichOverwrite')?.checked;
+            const query = overwrite ? 'overwrite=true' : '';
+            await post('/import/enrich/start', query);
             toast('Збагачення запущено');
             refreshDashboard();
             startPolling();

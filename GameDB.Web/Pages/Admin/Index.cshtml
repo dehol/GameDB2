@@ -62,7 +62,7 @@
         <div class="col-lg-4">
             <div class="admin-panel">
                 <h2 class="h6 admin-panel-title">Каталог Steam</h2>
-                <p class="small text-muted">Базовий список appid + назва з Steam Store API.</p>
+                <p class="small text-muted">Базовий список appid + назва з Steam Store API та SteamSpy.</p>
                 <button type="button" class="btn btn-primary btn-sm w-100 mb-2" id="btnBasicImport">
                     Імпорт нових ігор (basic)
                 </button>
@@ -76,6 +76,10 @@
                 <p class="small text-muted mb-2">
                     SteamSpy (метадані, жанри, теги) + IGDB (опис). Черга без опису: <strong id="pendingDetails">—</strong>
                 </p>
+                <div class="form-check form-switch small mb-2">
+                    <input class="form-check-input" type="checkbox" id="enrichOverwrite" />
+                    <label class="form-check-label" for="enrichOverwrite">Перезаписувати існуючі дані</label>
+                </div>
                 <button type="button" class="btn btn-success btn-sm w-100 mb-2" id="btnEnrichStart">
                     ▶ Збагачення (SteamSpy + IGDB)
                 </button>

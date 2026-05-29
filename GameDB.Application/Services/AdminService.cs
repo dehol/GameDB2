@@ -59,12 +59,16 @@ public sealed class AdminService : IAdminService
     public Task<int> ImportBasicGamesAsync(CancellationToken ct = default)
         => _steamImport.ImportBasicGamesAsync();
 
-    public void StartEnrichmentImport()
+    public void StartEnrichmentImport(bool overwriteExisting = false)
     {
         _enrichmentState.IsImporting = true;
         _enrichmentState.StartedAt = DateTime.UtcNow;
         _enrichmentState.FinishedAt = null;
-        _enrichmentState.LastMessage = "Збагачення (SteamSpy + IGDB) запущено.";
+        _enrichmentState.OverwriteExisting = overwriteExisting;
+        _enrichmentState.OverwriteSkip = 0;
+        _enrichmentState.LastMessage = overwriteExisting
+            ? "Збагачення (SteamSpy + IGDB) запущено (перезапис)."
+            : "Збагачення (SteamSpy + IGDB) запущено.";
         _enrichmentState.LastError = null;
     }
 
