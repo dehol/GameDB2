@@ -12,7 +12,7 @@ public sealed class LookupRepository(AppDbContext db) : ILookupRepository
     public async Task<Developer> GetOrCreateDeveloperAsync(string name, CancellationToken ct = default)
     {
         var id = await db.Database
-            .SqlQuery<int>($"SELECT fn_upsert_developer({name})")
+            .SqlQuery<int>($"SELECT fn_upsert_developer({name}) AS \"Value\"")
             .FirstAsync(ct);
         // No extra SELECT needed — we have the PK, reconstruct entity
         return new Developer { DeveloperId = id, Name = name };
@@ -21,7 +21,7 @@ public sealed class LookupRepository(AppDbContext db) : ILookupRepository
     public async Task<Publisher> GetOrCreatePublisherAsync(string name, CancellationToken ct = default)
     {
         var id = await db.Database
-            .SqlQuery<int>($"SELECT fn_upsert_publisher({name})")
+            .SqlQuery<int>($"SELECT fn_upsert_publisher({name}) AS \"Value\"")
             .FirstAsync(ct);
         return new Publisher { PublisherId = id, Name = name };
     }
@@ -29,7 +29,7 @@ public sealed class LookupRepository(AppDbContext db) : ILookupRepository
     public async Task<Genre> GetOrCreateGenreAsync(string name, CancellationToken ct = default)
     {
         var id = await db.Database
-            .SqlQuery<int>($"SELECT fn_upsert_genre({name})")
+            .SqlQuery<int>($"SELECT fn_upsert_genre({name}) AS \"Value\"")
             .FirstAsync(ct);
         return new Genre { GenreId = id, Name = name };
     }
