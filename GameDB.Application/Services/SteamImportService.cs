@@ -38,7 +38,6 @@ public class SteamImportService
 
     public async Task<int> ImportBasicGamesAsync()
     {
-        var steamGames = await _steamClient.GetAppListAsync();
         IReadOnlyCollection<SteamSpyAppListItemDto> steamSpyGames = [];
         try
         {
@@ -51,13 +50,6 @@ public class SteamImportService
         var existingIds = await _games.GetExistingSteamAppIdsAsync();
 
         var appMap = new Dictionary<int, string>();
-        foreach (var sg in steamGames)
-        {
-            if (sg.appid <= 0 || string.IsNullOrWhiteSpace(sg.name)) continue;
-            if (!appMap.ContainsKey(sg.appid))
-                appMap[sg.appid] = sg.name;
-        }
-
         foreach (var sg in steamSpyGames)
         {
             if (sg.AppId <= 0 || string.IsNullOrWhiteSpace(sg.Name)) continue;

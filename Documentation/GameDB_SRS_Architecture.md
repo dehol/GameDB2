@@ -618,8 +618,8 @@ The biggest challenge: Steam has ~100k+ apps. A naive full import takes hours. T
 **Phase 1 — App List Seeding (fast, ~30 sec)**
 
 ```
-1. GET https://api.steampowered.com/ISteamApps/GetAppList/v2/
-   → Returns array of { appid, name } — ~100k items
+1. GET https://steamspy.com/api.php?request=all
+   → Returns dictionary of appid → { appid, name } — ~100k items
 
 2. For each app:
    - If Games.AppId does not exist → INSERT with Name + AppId, DataStatus = 'Missing'
@@ -654,7 +654,7 @@ public async Task RunFullImportAsync(CancellationToken ct)
     try
     {
         // Phase 1
-        var allApps = await _steamClient.GetAppListAsync(ct);
+        var allApps = await _steamSpy.GetAppListAsync(ct);
         await _gameRepository.BulkSeedAppsAsync(allApps, ct);
         
         // Phase 2 runs separately as BackgroundService, not blocking this call
