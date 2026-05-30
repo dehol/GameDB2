@@ -39,7 +39,7 @@ public sealed class SteamSpyGameMapper(IOptions<SteamSpyImportOptions> options)
             }
         }
 
-        if (overwriteExisting || game.Genres.Count == 0)
+        if (overwriteExisting)
         {
             var hadGenres = game.Genres.Count > 0;
             game.Genres.Clear();
@@ -56,7 +56,7 @@ public sealed class SteamSpyGameMapper(IOptions<SteamSpyImportOptions> options)
                 updated = true;
         }
 
-        if (overwriteExisting || game.Tags.Count == 0)
+        if (overwriteExisting)
         {
             var hadTags = game.Tags.Count > 0;
             game.Tags.Clear();

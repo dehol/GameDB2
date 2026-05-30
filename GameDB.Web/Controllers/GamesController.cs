@@ -11,10 +11,10 @@ namespace GameDB.Web.Controllers;
 [Authorize(Roles = AuthCookieService.AdminRole)]
 public class GamesController : ControllerBase
 {
-    private readonly SteamImportService _steamImportService;
+    private readonly SteamSpyImportService _steamImportService;
     private readonly IAdminService _admin;
 
-    public GamesController(SteamImportService steamImportService, IAdminService admin)
+    public GamesController(SteamSpyImportService steamImportService, IAdminService admin)
     {
         _steamImportService = steamImportService;
         _admin = admin;
@@ -33,7 +33,7 @@ public class GamesController : ControllerBase
     public IActionResult StartDetailsImport([FromQuery] bool overwrite = false)
     {
         _admin.StartEnrichmentImport(overwrite);
-        return Accepted(new { message = "Збагачення (SteamSpy + IGDB) запущено." });
+        return Accepted(new { message = "Збагачення (SteamSpy) запущено." });
     }
 
     [HttpPost("steam/details/stop")]

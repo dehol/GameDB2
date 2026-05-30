@@ -28,8 +28,7 @@ public sealed class GameRepository(AppDbContext db) : IGameRepository
     // PERF-4: checks both null AND empty string — queue for enrichment worker
     public Task<List<int>> GetAppIdsWithoutDetailsAsync(int count, CancellationToken ct = default)
         => db.Games
-            .Where(g => g.SteamAppId != null &&
-                        (g.Description == null || g.Description == string.Empty))
+            .Where(g => g.SteamAppId != null && g.DeveloperId == null && g.PublisherId == null && g.ReleaseDate == null && g.Rating == null && g.RatingCount == null)
             .OrderBy(g => g.GameId)
             .Take(count)
             .Select(g => g.SteamAppId!.Value)

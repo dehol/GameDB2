@@ -8,9 +8,7 @@ namespace GameDB.Application.Services;
 public sealed class GameEnrichmentService(
     IGameRepository games,
     ISteamSpyClient steamSpy,
-    IIgdbClient igdbClient,
     SteamSpyGameMapper steamSpyMapper,
-    IgdbDescriptionMapper descriptionMapper,
     ILogger<GameEnrichmentService> logger,
     IOptions<SteamSpyImportOptions> options)
 {
@@ -54,26 +52,7 @@ public sealed class GameEnrichmentService(
 
         await steamSpyMapper.ApplyAsync(game, spy, games, overwriteExisting, ct);
 
-        if (overwriteExisting || string.IsNullOrWhiteSpace(game.Description))
-        {
-            var igdb = await igdbClient.GetBySteamIdAsync(appId, ct);
-            if (igdb is null)
-            {
-                logger.LogInformation("IGDB: пошук за назвою «{Name}» (AppId {AppId})", game.Name, appId);
-                var searchResults = await igdbClient.SearchGamesAsync(game.Name, ct);
-                igdb = searchResults.FirstOrDefault();
-            }
-
-            if (igdb is not null && (!string.IsNullOrWhiteSpace(igdb.summary) || !string.IsNullOrWhiteSpace(igdb.storyline)))
-            {
-                descriptionMapper.ApplyDescription(game, igdb, overwriteExisting);
-                logger.LogInformation("Збагачено: {Name} (SteamSpy + IGDB опис)", game.Name);
-            }
-            else
-            {
-                logger.LogWarning("IGDB: опис не знайдено для {Name} (AppId {AppId})", game.Name, appId);
-            }
-        }
+        logger.LogInformation("Збагачено: {Name} (SteamSpy)", game.Name);
 
         await games.UpdateAsync(game, ct);
     }

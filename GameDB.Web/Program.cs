@@ -79,17 +79,15 @@ try
 
     // ── Зовнішні HTTP-клієнти ────────────────────────────────────────────────
     builder.Services.AddHttpClient<ISteamClient, SteamClient>();
-    builder.Services.AddHttpClient<IIgdbClient, IgdbClient>();
     builder.Services.AddHttpClient<ISteamSpyClient, SteamSpyClient>();
 
     // ── Бізнес-сервіси ───────────────────────────────────────────────────────
     builder.Services.AddScoped<PriceManagerService>();
     builder.Services.AddScoped<SteamSpyPriceSyncService>();
     builder.Services.AddSingleton<SteamGameFilter>();
-    builder.Services.AddSingleton<GameMapper>();
-    builder.Services.AddScoped<SteamImportService>();
+
+    builder.Services.AddScoped<SteamSpyImportService>();
     builder.Services.AddSingleton<SteamSpyGameMapper>();
-    builder.Services.AddSingleton<IgdbDescriptionMapper>();
     builder.Services.AddScoped<GameEnrichmentService>();
     //
     builder.Services.AddScoped<ICatalogService, CatalogService>();
@@ -108,14 +106,12 @@ try
     
 
     // ── Background Workers ───────────────────────────────────────────────────
-    builder.Services.AddSingleton<SteamImportState>();
+
     builder.Services.AddSingleton<GameEnrichmentImportState>();
-    builder.Services.AddSingleton<GameDB.Infrastructure.Igdb.IgdbRateLimiter>();
     builder.Services.AddHostedService<GameDB.Infrastructure.Enrichment.GameEnrichmentWorker>();
     builder.Services.AddHostedService<GameDB.Infrastructure.Services.AlertCheckerHostedService>();
 
     // ── Налаштування ─────────────────────────────────────────────────────────
-    builder.Services.Configure<SteamImportOptions>(builder.Configuration.GetSection("SteamImport"));
     builder.Services.Configure<SteamSpyImportOptions>(builder.Configuration.GetSection("SteamSpy"));
     builder.Services.Configure<GameDB.Application.Options.AdminOptions>(
         builder.Configuration.GetSection("Admin"));

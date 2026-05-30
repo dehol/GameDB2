@@ -9,7 +9,7 @@ public sealed class AdminService : IAdminService
 {
     private readonly IAdminRepository _adminRepo;
     private readonly IGameRepository _gameRepo;
-    private readonly SteamImportService _steamImport;
+    private readonly SteamSpyImportService _steamImport;
     private readonly GameEnrichmentImportState _enrichmentState;
     private readonly PriceSyncState _priceState;
     private readonly IServiceScopeFactory _scopeFactory;
@@ -18,7 +18,7 @@ public sealed class AdminService : IAdminService
     public AdminService(
         IAdminRepository adminRepo,
         IGameRepository gameRepo,
-        SteamImportService steamImport,
+        SteamSpyImportService steamImport,
         GameEnrichmentImportState enrichmentState,
         PriceSyncState priceState,
         IServiceScopeFactory scopeFactory,
@@ -67,8 +67,8 @@ public sealed class AdminService : IAdminService
         _enrichmentState.OverwriteExisting = overwriteExisting;
         _enrichmentState.OverwriteSkip = 0;
         _enrichmentState.LastMessage = overwriteExisting
-            ? "Збагачення (SteamSpy + IGDB) запущено (перезапис)."
-            : "Збагачення (SteamSpy + IGDB) запущено.";
+            ? "Збагачення (SteamSpy) запущено (перезапис)."
+            : "Збагачення (SteamSpy) запущено.";
         _enrichmentState.LastError = null;
     }
 

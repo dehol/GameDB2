@@ -41,7 +41,7 @@ public class AdminController : ControllerBase
     public IActionResult StartEnrichment([FromQuery] bool overwrite = false)
     {
         _admin.StartEnrichmentImport(overwrite);
-        return Accepted(new { message = "Збагачення (SteamSpy + IGDB) запущено." });
+        return Accepted(new { message = "Збагачення (SteamSpy) запущено." });
     }
 
     [HttpPost("import/enrich/stop")]
@@ -57,7 +57,7 @@ public class AdminController : ControllerBase
     public IActionResult StartDetailsLegacy([FromQuery] bool overwrite = false)
     {
         _admin.StartEnrichmentImport(overwrite);
-        return Accepted(new { message = "Збагачення (SteamSpy + IGDB) запущено." });
+        return Accepted(new { message = "Збагачення (SteamSpy) запущено." });
     }
 
     [HttpPost("import/details/stop")]
