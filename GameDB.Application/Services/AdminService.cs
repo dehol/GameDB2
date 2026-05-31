@@ -1,5 +1,6 @@
 using GameDB.Application.DTOs;
 using GameDB.Application.Interfaces;
+using GameDB.Domain.Enums;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
@@ -8,7 +9,6 @@ namespace GameDB.Application.Services;
 public sealed class AdminService : IAdminService
 {
     private readonly IAdminRepository _adminRepo;
-    private readonly IGameRepository _gameRepo;
     private readonly SteamSpyImportService _steamImport;
     private readonly GameEnrichmentImportState _enrichmentState;
     private readonly PriceSyncState _priceState;
@@ -25,7 +25,6 @@ public sealed class AdminService : IAdminService
         ILogger<AdminService> logger)
     {
         _adminRepo = adminRepo;
-        _gameRepo = gameRepo;
         _steamImport = steamImport;
         _enrichmentState = enrichmentState;
         _priceState = priceState;
@@ -35,19 +34,27 @@ public sealed class AdminService : IAdminService
 
     public async Task<AdminDashboardDto> GetDashboardAsync(CancellationToken ct = default)
     {
-        var stats = await _adminRepo.GetStatsAsync(ct);
-        var pending = await _adminRepo.CountWithoutDetailsAsync(ct);
+        try
+        {
+            var stats = await _adminRepo.GetStatsAsync(ct);
 
-        return new AdminDashboardDto(
-            stats,
-            ToStatus(_enrichmentState.IsImporting, "enrichment", _enrichmentState.StartedAt, _enrichmentState.FinishedAt,
-                _enrichmentState.LastBatchSize, _enrichmentState.LastMessage, _enrichmentState.LastError),
-            ToStatus(_priceState.IsRunning, "steamspy", _priceState.StartedAt, _priceState.FinishedAt,
-                _priceState.LastBatchSize, _priceState.LastMessage, _priceState.LastError,
-                _priceState.ProcessedGames, _priceState.TotalGames),
-            pending);
+            return new AdminDashboardDto(
+                stats,
+                ToStatus(_enrichmentState.IsImporting, "enrichment",
+                    _enrichmentState.StartedAt, _enrichmentState.FinishedAt,
+                    _enrichmentState.LastBatchSize, _enrichmentState.LastMessage,
+                    _enrichmentState.LastError),
+                ToStatus(_priceState.IsRunning, "steamspy",
+                    _priceState.StartedAt, _priceState.FinishedAt,
+                    _priceState.LastBatchSize, _priceState.LastMessage,
+                    _priceState.LastError,
+                    _priceState.ProcessedGames, _priceState.TotalGames));
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
     }
-
     public Task<AdminGameListDto> GetGamesAsync(
         AdminGameCoverageFilter filter,
         int page,
@@ -57,7 +64,7 @@ public sealed class AdminService : IAdminService
         => _adminRepo.GetGamesAsync(filter, page, pageSize, search, ct);
 
     public Task<int> ImportBasicGamesAsync(CancellationToken ct = default)
-        => _steamImport.ImportBasicGamesAsync();
+    => _steamImport.ImportBasicGamesAsync(ct);
 
     public void StartEnrichmentImport(bool overwriteExisting = false)
     {
@@ -93,7 +100,7 @@ public sealed class AdminService : IAdminService
         _ = Task.Run(async () =>
         {
             using var scope = _scopeFactory.CreateScope();
-            var gameRepo = scope.ServiceProvider.GetRequiredService<IGameRepository>();
+            var gameRepo  = scope.ServiceProvider.GetRequiredService<IGameRepository>();
             var priceSync = scope.ServiceProvider.GetRequiredService<SteamSpyPriceSyncService>();
 
             try
@@ -105,15 +112,16 @@ public sealed class AdminService : IAdminService
                 for (var skip = 0; skip < total && !token.IsCancellationRequested; skip += batchSize)
                 {
                     var batch = await gameRepo.GetGamesBatchAsync(skip, batchSize, token);
-                    _priceState.LastBatchSize = batch.Count;
-                    _priceState.ProcessedGames = Math.Min(skip + batch.Count, total);
-                    _priceState.LastMessage =
+                    _priceState.LastBatchSize   = batch.Count;
+                    _priceState.ProcessedGames  = Math.Min(skip + batch.Count, total);
+                    _priceState.LastMessage     =
                         $"Батч {skip + 1}–{Math.Min(skip + batchSize, total)} з {total}";
 
                     if (batch.Count > 0)
                         await priceSync.SyncPricesBatchAsync(batch, token);
                 }
 
+                // Перевіряємо після циклу — міг скасуватись на останньому await
                 if (token.IsCancellationRequested)
                 {
                     _priceState.MarkFinished("Синхронізацію зупинено.");
@@ -126,8 +134,15 @@ public sealed class AdminService : IAdminService
                     _logger.LogInformation("SteamSpy price sync completed.");
                 }
             }
+            catch (OperationCanceledException)
+            {
+                // await всередині циклу теж може кинути — обробляємо окремо, не як помилку
+                _priceState.MarkFinished("Синхронізацію зупинено.");
+                _logger.LogInformation("SteamSpy price sync cancelled via token.");
+            }
             catch (Exception ex)
             {
+                // Тільки справжні помилки потрапляють сюди
                 _priceState.LastError = ex.Message;
                 _priceState.MarkFinished("Помилка синхронізації.");
                 _logger.LogError(ex, "SteamSpy price sync failed.");
@@ -136,7 +151,6 @@ public sealed class AdminService : IAdminService
 
         return true;
     }
-
     public void StopPriceSync()
     {
         _priceState.Cts?.Cancel();

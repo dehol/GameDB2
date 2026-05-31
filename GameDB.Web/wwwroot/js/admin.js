@@ -52,14 +52,15 @@
 
     function applyDashboard(d) {
         const s = d.stats;
-        el('statsCards').querySelector('[data-stat="total"]').textContent = s.totalGames;
-        el('statsCards').querySelector('[data-stat="withDetails"]').textContent = s.withDetails;
-        el('statsCards').querySelector('[data-stat="withoutDetails"]').textContent = s.withoutDetails;
-        el('statsCards').querySelector('[data-stat="withPrice"]').textContent = s.withPrice;
-        el('statsCards').querySelector('[data-stat="withoutPrice"]').textContent = s.withoutPrice;
-        el('statsCards').querySelector('[data-stat="steamNoPrice"]').textContent = s.steamWithoutPrice;
-        el('pendingDetails').textContent = d.pendingDetailsCount;
-        el('lastPriceSync').textContent = fmtDate(s.lastPriceSyncAt);
+        el('statsCards').querySelector('[data-stat="total"]').textContent          = s.totalGames;
+        el('statsCards').querySelector('[data-stat="statusFull"]').textContent     = s.statusFull;
+        el('statsCards').querySelector('[data-stat="statusBasic"]').textContent    = s.statusBasic;
+        el('statsCards').querySelector('[data-stat="withPrice"]').textContent      = s.withPrice;
+        el('statsCards').querySelector('[data-stat="withoutPrice"]').textContent   = s.withoutPrice;
+        el('statsCards').querySelector('[data-stat="basicWithoutPrice"]').textContent = s.basicWithoutPrice;
+
+        el('pendingDetails').textContent = s.statusBasic;
+        el('lastPriceSync').textContent  = fmtDate(s.lastPriceSyncAt);
 
         el('enrichmentJobStatus').innerHTML = jobHtml(d.gameEnrichment, 'Збагачення');
 
@@ -112,19 +113,19 @@
             tbody.innerHTML = '<tr><td colspan="7" class="text-muted text-center py-3">Немає записів</td></tr>';
         } else {
             tbody.innerHTML = data.items.map((g) => {
-                const details = g.hasDetails
-                    ? '<span class="admin-badge admin-badge-yes">так</span>'
-                    : '<span class="admin-badge admin-badge-no">ні</span>';
+                const statusBadge = g.importStatus === 'Full'
+                    ? '<span class="admin-badge admin-badge-yes">Full</span>'
+                    : '<span class="admin-badge admin-badge-no">Basic</span>';
                 const price = g.hasPrice
                     ? '<span class="admin-badge admin-badge-yes">так</span>'
                     : '<span class="admin-badge admin-badge-no">ні</span>';
                 return `<tr>
                     <td>${g.gameId}</td>
                     <td>${escapeHtml(g.name)}</td>
-                    <td>${g.steamAppId ?? '—'}</td>
-                    <td>${details}</td>
+                    <td>${g.steamExternalId ?? '—'}</td>
+                    <td>${statusBadge}</td>
                     <td>${price}</td>
-                    <td class="small text-muted">${fmtDate(g.lastPriceSyncAt)}</td>
+                    <td class="small text-muted">${fmtDate(g.lastSyncedAt)}</td>
                     <td><a href="/Catalog/Details/${g.gameId}" class="btn btn-link btn-sm p-0">→</a></td>
                 </tr>`;
             }).join('');

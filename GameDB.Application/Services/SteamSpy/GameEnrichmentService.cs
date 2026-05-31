@@ -1,5 +1,8 @@
 using GameDB.Application.Interfaces;
 using GameDB.Application.Options;
+using GameDB.Application.Services;
+using GameDB.Domain.Entities;
+using GameDB.Domain.Enums;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -15,42 +18,49 @@ public sealed class GameEnrichmentService(
     private readonly SteamSpyImportOptions _options = options.Value;
 
     public async Task ImportBatchAsync(
-        List<int> appIds,
+        List<string> externalIds,
         GameEnrichmentImportState state,
         CancellationToken ct = default)
     {
-        var overwriteExisting = state.OverwriteExisting;
-        foreach (var appId in appIds)
+        foreach (var externalId in externalIds)
         {
-            if (ct.IsCancellationRequested || !state.IsImporting)
-                break;
+            if (ct.IsCancellationRequested || !state.IsImporting) break;
+
+            // Парсинг Steam AppId — локально в сервісі, не в репозиторії
+            if (!int.TryParse(externalId, out var appId)) continue;
 
             try
             {
-                await EnrichSingleGameAsync(appId, overwriteExisting, ct);
+                await EnrichSingleGameAsync(appId, externalId, state.OverwriteExisting, ct);
                 await Task.Delay(_options.DelayBetweenRequestsMs, ct);
             }
             catch (Exception ex)
             {
-                logger.LogError(ex, "Помилка збагачення гри Steam AppId {AppId}", appId);
+                logger.LogError(ex, "Помилка збагачення гри ExternalId={ExternalId}", externalId);
             }
         }
     }
 
-    private async Task EnrichSingleGameAsync(int appId, bool overwriteExisting, CancellationToken ct)
+    private async Task EnrichSingleGameAsync(
+        int appId, string externalId, bool overwriteExisting, CancellationToken ct)
     {
-        var game = await games.GetBySteamIdAsync(appId, ct);
+        var game = await games.GetByExternalIdAsync(SteamSpyImportService.SteamShopId, externalId, ct);
         if (game is null) return;
 
         var spy = await steamSpy.GetAppDetailsAsync(appId, ct);
-        if (spy is null || string.IsNullOrWhiteSpace(spy.Name) ||
-            string.Equals(spy.Name, "none", StringComparison.OrdinalIgnoreCase))
+        if (spy is null
+            || string.IsNullOrWhiteSpace(spy.Name)
+            || string.Equals(spy.Name, "none", StringComparison.OrdinalIgnoreCase))
         {
+            game.ImportStatus = GameImportStatus.Fail;
             logger.LogWarning("SteamSpy: немає даних для AppId {AppId}", appId);
+            await games.UpdateAsync(game, ct);
             return;
         }
 
         await steamSpyMapper.ApplyAsync(game, spy, games, overwriteExisting, ct);
+
+        game.ImportStatus = GameImportStatus.Full;
 
         logger.LogInformation("Збагачено: {Name} (SteamSpy)", game.Name);
 

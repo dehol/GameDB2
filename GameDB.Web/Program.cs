@@ -1,5 +1,4 @@
 using Microsoft.AspNetCore.Authentication;
-using Microsoft.Extensions.Hosting;
 using Serilog;
 using GameDB.Application.Services;
 using GameDB.Application.Options;
@@ -11,6 +10,9 @@ using GameDB.Infrastructure.Data.Repositories;
 using GameDB.Infrastructure.ExternalProviders;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using GameDB.Infrastructure.Catalog;
+using Polly;
+using Microsoft.Extensions.Http.Resilience;
+using System.Net;
 
 // Bootstrap-логер
 Log.Logger = new LoggerConfiguration()
@@ -25,7 +27,10 @@ try
 
     // ── Razor Pages + Controllers ────────────────────────────────────────────
     builder.Services.AddRazorPages();
-    builder.Services.AddControllers();
+    builder.Services.AddControllers()
+        .AddJsonOptions(o =>
+            o.JsonSerializerOptions.Converters.Add(
+                new System.Text.Json.Serialization.JsonStringEnumConverter()));
     builder.Services.AddEndpointsApiExplorer();
     builder.Services.AddSwaggerGen();
 
@@ -79,7 +84,38 @@ try
 
     // ── Зовнішні HTTP-клієнти ────────────────────────────────────────────────
     builder.Services.AddHttpClient<ISteamClient, SteamClient>();
-    builder.Services.AddHttpClient<ISteamSpyClient, SteamSpyClient>();
+    builder.Services
+    .AddHttpClient<ISteamSpyClient, SteamSpyClient>()
+    .AddResilienceHandler("steamspy", pipeline =>
+    {
+        // 1. Retry — повторює при мережевих помилках і 5xx
+        pipeline.AddRetry(new HttpRetryStrategyOptions
+        {
+            MaxRetryAttempts = 3,
+            Delay             = TimeSpan.FromSeconds(2),
+            BackoffType       = DelayBackoffType.Exponential, // 2s, 4s, 8s
+            ShouldHandle      = args => args.Outcome switch
+            {
+                // Повторюємо при мережевій помилці або 5xx
+                { Exception: HttpRequestException }    => ValueTask.FromResult(true),
+                { Result.StatusCode: >= HttpStatusCode.InternalServerError } => ValueTask.FromResult(true),
+                _ => ValueTask.FromResult(false)
+            }
+        });
+
+        // 2. Rate limit (429) — окрема стратегія з довшою паузою
+        pipeline.AddRetry(new HttpRetryStrategyOptions
+        {
+            MaxRetryAttempts = 5,
+            Delay             = TimeSpan.FromSeconds(10),
+            BackoffType       = DelayBackoffType.Constant,
+            ShouldHandle      = args => ValueTask.FromResult(
+                args.Outcome.Result?.StatusCode == HttpStatusCode.TooManyRequests)
+        });
+
+        // 3. Timeout — кожен окремий запит не довше 30с
+        pipeline.AddTimeout(TimeSpan.FromSeconds(30));
+    });
 
     // ── Бізнес-сервіси ───────────────────────────────────────────────────────
     builder.Services.AddScoped<PriceManagerService>();

@@ -55,9 +55,9 @@
       {
         <li><strong>Дата виходу:</strong> @g.ReleaseDate.Value.ToString("d MMMM yyyy")</li>
       }
-      @if (g.SteamAppId.HasValue)
+      @if (g.ExternalIds.TryGetValue("steam", out var steamId))
       {
-        <li><strong>Steam App ID:</strong> @g.SteamAppId</li>
+        <li><strong>Steam App ID:</strong> @steamId</li>
       }
     </ul>
 

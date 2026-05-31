@@ -31,14 +31,14 @@
         </div>
         <div class="col-md-4 col-lg-2">
             <div class="admin-stat-card admin-stat-ok">
-                <div class="admin-stat-label">З деталями</div>
-                <div class="admin-stat-value" data-stat="withDetails">—</div>
+                <div class="admin-stat-label">Full (деталі)</div>
+                <div class="admin-stat-value" data-stat="statusFull">—</div>
             </div>
         </div>
         <div class="col-md-4 col-lg-2">
             <div class="admin-stat-card admin-stat-warn">
-                <div class="admin-stat-label">Без деталей</div>
-                <div class="admin-stat-value" data-stat="withoutDetails">—</div>
+                <div class="admin-stat-label">Basic (без деталей)</div>
+                <div class="admin-stat-value" data-stat="statusBasic">—</div>
             </div>
         </div>
         <div class="col-md-4 col-lg-2">
@@ -55,8 +55,8 @@
         </div>
         <div class="col-md-4 col-lg-2">
             <div class="admin-stat-card admin-stat-danger">
-                <div class="admin-stat-label">Steam без ціни</div>
-                <div class="admin-stat-value" data-stat="steamNoPrice">—</div>
+                <div class="admin-stat-label">Basic без ціни</div>
+                <div class="admin-stat-value" data-stat="basicWithoutPrice">—</div>
             </div>
         </div>
     </div>
@@ -77,7 +77,7 @@
             <div class="admin-panel">
                 <h2 class="h6 admin-panel-title">Збагачення ігор</h2>
                 <p class="small text-muted mb-2">
-                    SteamSpy (метадані, жанри, теги) + IGDB (опис). Черга без опису: <strong id="pendingDetails">—</strong>
+                    SteamSpy (метадані, жанри, теги) + IGDB (опис). Черга: <strong id="pendingDetails">—</strong>
                 </p>
                 <div class="form-check form-switch small mb-2">
                     <input class="form-check-input" type="checkbox" id="enrichOverwrite" />
@@ -128,12 +128,12 @@
                        placeholder="Назва або ID…" style="max-width: 200px;" />
                 <select class="form-select form-select-sm" id="gameFilter" style="max-width: 220px;">
                     <option value="All">Усі ігри</option>
-                    <option value="NoDetails">Без деталей</option>
-                    <option value="HasDetails">З деталями</option>
+                    <option value="StatusBasic">Basic (без деталей)</option>
+                    <option value="StatusFull">Full (з деталями)</option>
                     <option value="NoPrice">Без ціни</option>
                     <option value="HasPrice">З ціною</option>
-                    <option value="SteamNoPrice">Steam appid, без ціни</option>
-                    <option value="NoSteamAppId">Без Steam AppId</option>
+                    <option value="BasicNoPrice">Basic без ціни</option>
+                    <option value="NoExternalId">Без зовнішнього ID</option>
                 </select>
             </div>
         </div>
@@ -144,8 +144,8 @@
                     <tr>
                         <th>ID</th>
                         <th>Назва</th>
-                        <th>Steam</th>
-                        <th>Деталі</th>
+                        <th>Steam ID</th>
+                        <th>Статус</th>
                         <th>Ціна</th>
                         <th>Синх. цін</th>
                         <th></th>

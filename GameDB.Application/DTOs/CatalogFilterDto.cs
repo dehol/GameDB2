@@ -1,3 +1,4 @@
+using GameDB.Domain.Enums;
 namespace GameDB.Application.DTOs;
 
 // ─── Фільтри каталогу ─────────────────────────────────────────────────────
@@ -81,20 +82,21 @@ public record CatalogGameDto(
 // ─── Деталі гри ──────────────────────────────────────────────────────────
 
 public record GameDetailDto(
-    int      GameId,
-    string   Name,
-    string?  Description,
-    string?  HeaderImage,
-    string?  IconImage,
+    int       GameId,
+    string    Name,
+    string?   HeaderImage,
+    string?   IconImage,
     DateOnly? ReleaseDate,
-    double?  Rating,
-    int?     RatingCount,
-    string?  DeveloperName,
-    string?  PublisherName,
+    double?   Rating,
+    int?      RatingCount,
+    string?   DeveloperName,
+    string?   PublisherName,
     List<string> Genres,
     List<string> Tags,
-    int?     SteamAppId,
-    List<GameOfferDto> Offers
+    /// <summary>Зовнішні ID гри по магазинах: slug → externalId (напр. "steam" → "730").</summary>
+    Dictionary<string, string> ExternalIds,
+    List<GameOfferDto> Offers,
+    GameImportStatus ImportStatus
 );
 
 public record GameOfferDto(

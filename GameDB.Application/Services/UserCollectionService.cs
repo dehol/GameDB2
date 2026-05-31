@@ -35,8 +35,9 @@ public sealed class UserCollectionService(
             return ImportResultDto.Fail(
                 "Не вдалося отримати wishlist Steam. Перевірте API-ключ, приватність профілю та прив'язку Steam.");
 
-        var gameIds = await collections.MapSteamAppIdsToGameIdsAsync(appIds, ct);
-        var added   = await collections.AddWishlistBulkAsync(userId, gameIds, ct);
+        var gameIds = await collections.MapExternalIdsToGameIdsAsync(
+            appIds.Select(id => id.ToString()), "steam", ct);
+        var added = await collections.AddWishlistBulkAsync(userId, gameIds, ct);
         return ImportResultDto.Ok(added, appIds.Count - gameIds.Count, appIds.Count);
     }
 
@@ -71,8 +72,9 @@ public sealed class UserCollectionService(
             return ImportResultDto.Fail(
                 "Не вдалося отримати бібліотеку Steam. Перевірте API-ключ і що профіль/бібліотека публічні.");
 
-        var gameIds = await collections.MapSteamAppIdsToGameIdsAsync(appIds, ct);
-        var added   = await collections.AddLibraryBulkAsync(userId, gameIds, shopId.Value, ct);
+        var gameIds = await collections.MapExternalIdsToGameIdsAsync(
+            appIds.Select(id => id.ToString()), "steam", ct);
+        var added = await collections.AddLibraryBulkAsync(userId, gameIds, shopId.Value, ct);
         return ImportResultDto.Ok(added, appIds.Count - gameIds.Count, appIds.Count);
     }
 

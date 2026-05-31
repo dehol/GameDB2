@@ -13,6 +13,7 @@ public sealed class UserCollectionRepository(AppDbContext db) : IUserCollectionR
             .AsNoTracking()
             .Where(w => w.UserId == userId)
             .Include(w => w.Game).ThenInclude(g => g.GameOffers)
+            .Include(w => w.Game).ThenInclude(g => g.ExternalIds)
             .OrderByDescending(w => w.AddedAt)
             .ToListAsync(ct);
 
@@ -73,6 +74,7 @@ public sealed class UserCollectionRepository(AppDbContext db) : IUserCollectionR
             .AsNoTracking()
             .Where(l => l.UserId == userId)
             .Include(l => l.Game).ThenInclude(g => g.GameOffers)
+            .Include(l => l.Game).ThenInclude(g => g.ExternalIds)
             .Include(l => l.Shop)
             .OrderByDescending(l => l.AddedAt)
             .ToListAsync(ct);
@@ -132,16 +134,20 @@ public sealed class UserCollectionRepository(AppDbContext db) : IUserCollectionR
         return toAdd.Count;
     }
 
-    public async Task<List<int>> MapSteamAppIdsToGameIdsAsync(
-        IEnumerable<int> steamAppIds, CancellationToken ct = default)
+    /// <summary>
+    /// Повертає GameId за списком зовнішніх ID конкретного магазину (slug).
+    /// Замінює старий MapSteamAppIdsToGameIdsAsync.
+    /// </summary>
+    public async Task<List<int>> MapExternalIdsToGameIdsAsync(
+        IEnumerable<string> externalIds, string shopSlug, CancellationToken ct = default)
     {
-        var ids = steamAppIds.Distinct().ToList();
+        var ids = externalIds.Distinct().ToList();
         if (ids.Count == 0) return [];
 
-        return await db.Games
+        return await db.GameExternalIds
             .AsNoTracking()
-            .Where(g => g.SteamAppId != null && ids.Contains(g.SteamAppId.Value))
-            .Select(g => g.GameId)
+            .Where(e => e.Shop.Slug == shopSlug && ids.Contains(e.ExternalId))
+            .Select(e => e.GameId)
             .ToListAsync(ct);
     }
 
@@ -166,7 +172,8 @@ public sealed class UserCollectionRepository(AppDbContext db) : IUserCollectionR
 
     private static UserGameListItemDto MapWishlistItem(Game game, DateTime addedAt)
     {
-        var best = game.GameOffers.OrderBy(o => o.FinalPrice ?? o.CurrentPrice).FirstOrDefault();
+        var best    = game.GameOffers.OrderBy(o => o.FinalPrice ?? o.CurrentPrice).FirstOrDefault();
+        var steamId = game.ExternalIds.FirstOrDefault(e => e.Shop?.Slug == "steam")?.ExternalId;
         return new UserGameListItemDto(
             game.GameId,
             game.Name,
@@ -176,12 +183,13 @@ public sealed class UserCollectionRepository(AppDbContext db) : IUserCollectionR
             best?.Currency,
             best?.CurrentDiscount ?? 0,
             addedAt,
-            game.SteamAppId);
+            steamId);
     }
 
     private static UserLibraryItemDto MapLibraryItem(Game game, GameShop shop, DateTime addedAt)
     {
-        var best = game.GameOffers.OrderBy(o => o.FinalPrice ?? o.CurrentPrice).FirstOrDefault();
+        var best    = game.GameOffers.OrderBy(o => o.FinalPrice ?? o.CurrentPrice).FirstOrDefault();
+        var steamId = game.ExternalIds.FirstOrDefault(e => e.Shop?.Slug == "steam")?.ExternalId;
         return new UserLibraryItemDto(
             game.GameId,
             game.Name,
@@ -193,7 +201,7 @@ public sealed class UserCollectionRepository(AppDbContext db) : IUserCollectionR
             addedAt,
             shop.ShopId,
             shop.Name,
-            game.SteamAppId);
+            steamId);
     }
 
     private static AlertListItemDto MapAlert(Alert a)

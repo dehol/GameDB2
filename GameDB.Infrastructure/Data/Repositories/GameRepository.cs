@@ -1,47 +1,24 @@
-
 using GameDB.Application.Interfaces;
 using GameDB.Domain.Entities;
+using GameDB.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 
 namespace GameDB.Infrastructure.Data.Repositories;
 
 public sealed class GameRepository(AppDbContext db) : IGameRepository
 {
+    // ── Базові CRUD ──────────────────────────────────────────────────────────
+
     public Task<Game?> GetByIdAsync(int gameId, CancellationToken ct = default)
         => db.Games.AsNoTracking().FirstOrDefaultAsync(g => g.GameId == gameId, ct);
 
-    public Task<Game?> GetBySteamIdAsync(int steamAppId, CancellationToken ct = default)
+    public Task<Game?> GetByExternalIdAsync(int shopId, string externalId, CancellationToken ct = default)
         => db.Games
             .Include(g => g.Genres)
             .Include(g => g.Tags)
-            .FirstOrDefaultAsync(g => g.SteamAppId == steamAppId, ct);
-
-    public async Task<HashSet<int>> GetExistingSteamAppIdsAsync(CancellationToken ct = default)
-    {
-        var ids = await db.Games
-            .Where(g => g.SteamAppId != null)
-            .Select(g => g.SteamAppId!.Value)
-            .ToListAsync(ct);
-        return [..ids];
-    }
-
-    // PERF-4: checks both null AND empty string — queue for enrichment worker
-    public Task<List<int>> GetAppIdsWithoutDetailsAsync(int count, CancellationToken ct = default)
-        => db.Games
-            .Where(g => g.SteamAppId != null && g.DeveloperId == null && g.PublisherId == null && g.ReleaseDate == null && g.Rating == null && g.RatingCount == null)
-            .OrderBy(g => g.GameId)
-            .Take(count)
-            .Select(g => g.SteamAppId!.Value)
-            .ToListAsync(ct);
-
-    public Task<List<int>> GetSteamAppIdsBatchAsync(int skip, int take, CancellationToken ct = default)
-        => db.Games
-            .Where(g => g.SteamAppId != null)
-            .OrderBy(g => g.GameId)
-            .Skip(skip)
-            .Take(take)
-            .Select(g => g.SteamAppId!.Value)
-            .ToListAsync(ct);
+            .Include(g => g.ExternalIds)
+            .FirstOrDefaultAsync(g =>
+                g.ExternalIds.Any(e => e.ShopId == shopId && e.ExternalId == externalId), ct);
 
     public Task<int> GetTotalGamesCountAsync(CancellationToken ct = default)
         => db.Games.CountAsync(ct);
@@ -49,12 +26,45 @@ public sealed class GameRepository(AppDbContext db) : IGameRepository
     public Task<List<Game>> GetGamesBatchAsync(int skip, int take, CancellationToken ct = default)
         => db.Games.AsNoTracking()
             .Include(g => g.GameOffers)
+            .Include(g => g.ExternalIds)
             .OrderBy(g => g.GameId)
             .Skip(skip).Take(take)
             .ToListAsync(ct);
 
-    // BUG-1 fix: single query with LEFT JOIN projection — no N+1
-    
+    // ── Запити для імпорту ───────────────────────────────────────────────────
+
+    public async Task<HashSet<string>> GetExistingExternalIdsAsync(int shopId, CancellationToken ct = default)
+    {
+        var ids = await db.Set<GameExternalId>()
+            .Where(e => e.ShopId == shopId)
+            .Select(e => e.ExternalId)
+            .ToListAsync(ct);
+        return [..ids];
+    }
+
+    public async Task<List<string>> GetExternalIdsByStatusAsync(
+        int shopId, GameImportStatus status, int count, CancellationToken ct = default)
+    {
+        return await db.Set<GameExternalId>()
+            .Include(e => e.Game)
+            .Where(e => e.ShopId == shopId && e.Game.ImportStatus == status)
+            .OrderBy(e => e.GameId)
+            .Take(count)
+            .Select(e => e.ExternalId)
+            .ToListAsync(ct);
+    }
+
+    public Task<List<string>> GetExternalIdsBatchAsync(
+        int shopId, int skip, int take, CancellationToken ct = default)
+        => db.Set<GameExternalId>()
+            .Where(e => e.ShopId == shopId)
+            .OrderBy(e => e.GameId)
+            .Skip(skip).Take(take)
+            .Select(e => e.ExternalId)
+            .ToListAsync(ct);
+
+    // ── Запис ────────────────────────────────────────────────────────────────
+
     public async Task AddAsync(Game game, CancellationToken ct = default)
     {
         db.Games.Add(game);
@@ -76,47 +86,33 @@ public sealed class GameRepository(AppDbContext db) : IGameRepository
     public async Task DeleteAsync(int gameId, CancellationToken ct = default)
         => await db.Games.Where(g => g.GameId == gameId).ExecuteDeleteAsync(ct);
 
-    // PERF-3 fix: ExecuteDeleteAsync — 1 round-trip instead of SELECT + DELETE
-    public async Task DeleteBySteamIdAsync(int steamAppId, CancellationToken ct = default)
-        => await db.Games.Where(g => g.SteamAppId == steamAppId).ExecuteDeleteAsync(ct);
+    // ── Lookup ───────────────────────────────────────────────────────────────
 
-        public async Task<Developer> GetOrCreateDeveloperAsync(string name)
+    public async Task<Developer> GetOrCreateDeveloperAsync(string name, CancellationToken ct = default)
     {
         await db.Database.ExecuteSqlRawAsync(
-            "INSERT INTO \"Developer\" (\"Name\") VALUES ({0}) ON CONFLICT (\"Name\") DO NOTHING",
-            name).ConfigureAwait(false);
-
-        var dataEntity = await db.Set<Developer>().FirstAsync(d => d.Name == name).ConfigureAwait(false);
-        return dataEntity;
+            "INSERT INTO \"Developer\" (\"Name\") VALUES ({0}) ON CONFLICT (\"Name\") DO NOTHING", name);
+        return await db.Set<Developer>().FirstAsync(d => d.Name == name, ct);
     }
 
-    public async Task<Publisher> GetOrCreatePublisherAsync(string name)
+    public async Task<Publisher> GetOrCreatePublisherAsync(string name, CancellationToken ct = default)
     {
         await db.Database.ExecuteSqlRawAsync(
-            "INSERT INTO \"Publisher\" (\"Name\") VALUES ({0}) ON CONFLICT (\"Name\") DO NOTHING",
-            name).ConfigureAwait(false);
-
-        var dataEntity = await db.Set<Publisher>().FirstAsync(p => p.Name == name).ConfigureAwait(false);
-        return dataEntity;
+            "INSERT INTO \"Publisher\" (\"Name\") VALUES ({0}) ON CONFLICT (\"Name\") DO NOTHING", name);
+        return await db.Set<Publisher>().FirstAsync(p => p.Name == name, ct);
     }
 
-    public async Task<Genre> GetOrCreateGenreAsync(string name)
+    public async Task<Genre> GetOrCreateGenreAsync(string name, CancellationToken ct = default)
     {
         await db.Database.ExecuteSqlRawAsync(
-            "INSERT INTO \"Genre\" (\"Name\") VALUES ({0}) ON CONFLICT (\"Name\") DO NOTHING",
-            name).ConfigureAwait(false);
-
-        var dataEntity = await db.Set<Genre>().FirstAsync(g => g.Name == name).ConfigureAwait(false);
-        return dataEntity;
+            "INSERT INTO \"Genre\" (\"Name\") VALUES ({0}) ON CONFLICT (\"Name\") DO NOTHING", name);
+        return await db.Set<Genre>().FirstAsync(g => g.Name == name, ct);
     }
 
-    public async Task<Tag> GetOrCreateTagAsync(string name)
+    public async Task<Tag> GetOrCreateTagAsync(string name, CancellationToken ct = default)
     {
         await db.Database.ExecuteSqlRawAsync(
-            "INSERT INTO \"Tag\" (\"Name\") VALUES ({0}) ON CONFLICT (\"Name\") DO NOTHING",
-            name).ConfigureAwait(false);
-
-        var dataEntity = await db.Set<Tag>().FirstAsync(t => t.Name == name).ConfigureAwait(false);
-        return dataEntity;
+            "INSERT INTO \"Tag\" (\"Name\") VALUES ({0}) ON CONFLICT (\"Name\") DO NOTHING", name);
+        return await db.Set<Tag>().FirstAsync(t => t.Name == name, ct);
     }
 }

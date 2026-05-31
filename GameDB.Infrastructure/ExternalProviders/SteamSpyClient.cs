@@ -1,16 +1,15 @@
-using System.Net.Http.Json;
 using System.Text.Json;
 using GameDB.Application.DTOs;
 using GameDB.Application.Interfaces;
 using Microsoft.Extensions.Configuration;
-using System.Collections.Generic;
-using System.Linq;
+using Microsoft.Extensions.Logging;
 
 namespace GameDB.Infrastructure.ExternalProviders;
 
 public sealed class SteamSpyClient : ISteamSpyClient
 {
     private readonly HttpClient _httpClient;
+    private readonly ILogger<SteamSpyClient> _logger;
     private readonly string _baseUrl;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -18,15 +17,20 @@ public sealed class SteamSpyClient : ISteamSpyClient
         PropertyNameCaseInsensitive = true
     };
 
-    public SteamSpyClient(HttpClient httpClient, IConfiguration config)
+    public SteamSpyClient(
+        HttpClient httpClient,
+        IConfiguration config,
+        ILogger<SteamSpyClient> logger)
     {
         _httpClient = httpClient;
-        _baseUrl = config["SteamSpy:BaseUrl"] ?? "https://steamspy.com/api.php";
+        _logger     = logger;
+        _baseUrl    = config["SteamSpy:BaseUrl"] ?? "https://steamspy.com/api.php";
     }
 
-    public async Task<SteamSpyAppDetailsDto?> GetAppDetailsAsync(int appId, CancellationToken ct = default)
+    public async Task<SteamSpyAppDetailsDto?> GetAppDetailsAsync(
+        int appId, CancellationToken ct = default)
     {
-        var url = $"{_baseUrl.TrimEnd('/')}?request=appdetails&appid={appId}";
+        var url      = $"{_baseUrl.TrimEnd('/')}?request=appdetails&appid={appId}";
         var response = await _httpClient.GetAsync(url, ct);
 
         if (!response.IsSuccessStatusCode)
@@ -38,48 +42,82 @@ public sealed class SteamSpyClient : ISteamSpyClient
 
         try
         {
+            json = json.Replace("\"tags\":[]", "\"tags\":null");
             return JsonSerializer.Deserialize<SteamSpyAppDetailsDto>(json, JsonOptions);
         }
-        catch (JsonException)
+        catch (JsonException ex)
         {
+            _logger.LogWarning(ex,
+                "SteamSpy: не зміг розпарсити відповідь для AppId={AppId}", appId);
             return null;
         }
     }
 
-    public async Task<IReadOnlyCollection<SteamSpyAppListItemDto>> GetAppListAsync(CancellationToken ct = default)
+    public async Task<IReadOnlyCollection<SteamSpyAppListItemDto>> GetAppListAsync(
+        CancellationToken ct = default)
     {
-        var url = $"{_baseUrl.TrimEnd('/')}?request=all";
-        var response = await _httpClient.GetAsync(url, ct);
+        var result = new Dictionary<int, SteamSpyAppListItemDto>();
 
-        if (!response.IsSuccessStatusCode)
-            return [];
-
-        var json = await response.Content.ReadAsStringAsync(ct);
-        if (string.IsNullOrWhiteSpace(json) || json == "null")
-            return [];
-
-        try
+        for (var page = 0; ; page++)
         {
-            var data = JsonSerializer.Deserialize<Dictionary<string, SteamSpyAppListItemDto>>(json, JsonOptions);
-            if (data == null || data.Count == 0)
-                return [];
+            ct.ThrowIfCancellationRequested();
 
+            var url      = $"{_baseUrl.TrimEnd('/')}?request=all&page={page}";
+            var response = await _httpClient.GetAsync(url, ct);
+
+            // Polly вже відпрацював retry — якщо все одно не 200, виходимо
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogWarning(
+                    "SteamSpy page {Page} повернув {Status}, зупиняємо пагінацію",
+                    page, response.StatusCode);
+                break;
+            }
+
+            var json = await response.Content.ReadAsStringAsync(ct);
+
+            if (string.IsNullOrWhiteSpace(json) || json == "null" || json == "{}")
+                break; // порожня сторінка — кінець пагінації
+
+            Dictionary<string, SteamSpyAppListItemDto>? data = null;
+            try
+            {
+                data = JsonSerializer.Deserialize<Dictionary<string, SteamSpyAppListItemDto>>(
+                    json, JsonOptions);
+            }
+            catch (JsonException ex)
+            {
+                _logger.LogWarning(ex, "SteamSpy page {Page} — не зміг розпарсити", page);
+                break;
+            }
+
+            if (data is null || data.Count == 0)
+                break;
+
+            var added = 0;
             foreach (var (key, item) in data)
             {
                 if (item is null) continue;
-                if (item.AppId == 0 && int.TryParse(key, out var appId))
-                    item.AppId = appId;
+
+                if (item.AppId == 0 && int.TryParse(key, out var parsedId))
+                    item.AppId = parsedId;
+
+                if (item.AppId > 0
+                    && !string.IsNullOrWhiteSpace(item.Name)
+                    && result.TryAdd(item.AppId, item))
+                {
+                    added++;
+                }
             }
 
-            return data.Values
-                .Where(item => item is not null &&
-                               item.AppId > 0 &&
-                               !string.IsNullOrWhiteSpace(item.Name))
-                .ToList();
+            _logger.LogInformation(
+                "SteamSpy page {Page}: +{Added} ігор, всього {Total}", page, added, result.Count);
+
+            // Затримка між сторінками щоб не словити 429
+            // (Polly обробить якщо все одно прийде, але краще не доводити)
+            await Task.Delay(TimeSpan.FromMilliseconds(300), ct);
         }
-        catch (JsonException)
-        {
-            return [];
-        }
+
+        return result.Values.ToList();
     }
 }

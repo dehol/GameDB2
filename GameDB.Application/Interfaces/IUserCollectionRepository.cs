@@ -16,6 +16,7 @@ public interface IUserCollectionRepository
     Task RemoveFromLibraryAsync(int userId, int gameId, int shopId, CancellationToken ct = default);
     Task<int> AddLibraryBulkAsync(int userId, IEnumerable<int> gameIds, int shopId, CancellationToken ct = default);
 
-    Task<List<int>> MapSteamAppIdsToGameIdsAsync(IEnumerable<int> steamAppIds, CancellationToken ct = default);
+    Task<List<int>> MapExternalIdsToGameIdsAsync(
+        IEnumerable<string> externalIds, string shopSlug, CancellationToken ct = default);
     Task<GameCollectionStateDto> GetCollectionStateAsync(int userId, int gameId, CancellationToken ct = default);
 }

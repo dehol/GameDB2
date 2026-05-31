@@ -16,23 +16,28 @@ public sealed class SteamSpyPriceSyncService(
 
     public async Task SyncPricesBatchAsync(IReadOnlyCollection<Game> games, CancellationToken ct = default)
     {
-        var validGames = games.Where(g => g.SteamAppId.HasValue).ToList();
-        if (validGames.Count == 0)
+        // Steam AppId — рядок у GameExternalId, парсимо тут у Steam-сервісі
+        var validPairs = games
+            .SelectMany(g => g.ExternalIds
+                .Where(e => e.ShopId == SteamSpyImportService.SteamShopId
+                            && int.TryParse(e.ExternalId, out _))
+                .Select(e => (Game: g, AppId: int.Parse(e.ExternalId))))
+            .ToList();
+
+        if (validPairs.Count == 0)
         {
-            logger.LogWarning("SteamSpy prices: no games with SteamAppId");
+            logger.LogWarning("SteamSpy prices: no games with Steam ExternalId");
             return;
         }
 
-        logger.LogInformation("SteamSpy prices: syncing {Count} games", validGames.Count);
+        logger.LogInformation("SteamSpy prices: syncing {Count} games", validPairs.Count);
 
-        int updated = 0;
-        int skipped = 0;
+        int updated = 0, skipped = 0;
 
-        foreach (var game in validGames)
+        foreach (var (game, appId) in validPairs)
         {
             if (ct.IsCancellationRequested) break;
 
-            var appId = game.SteamAppId!.Value;
             try
             {
                 var spy = await steamSpy.GetAppDetailsAsync(appId, ct);
@@ -47,14 +52,14 @@ public sealed class SteamSpyPriceSyncService(
                     discount = d;
 
                 await priceManager.ProcessPriceUpdateAsync(
-                    gameId: game.GameId,
-                    shopId: 1,
-                    newPrice: regularPrice,
+                    gameId:      game.GameId,
+                    shopId:      SteamSpyImportService.SteamShopId,
+                    newPrice:    regularPrice,
                     newDiscount: discount,
-                    currency: "USD",
-                    externalId: appId.ToString(),
-                    downloadUrl: $"https://store.steampowered.com/app/{appId}/",
-                    ct: ct);
+                    currency:    "USD",
+                    externalId:  appId.ToString(),
+                    downloadUrl: SteamSpyImportService.BuildStoreUrl(appId),
+                    ct:          ct);
 
                 updated++;
             }
@@ -68,7 +73,7 @@ public sealed class SteamSpyPriceSyncService(
 
         logger.LogInformation(
             "SteamSpy price sync complete: updated={Updated}, skipped={Skipped}, total={Total}",
-            updated, skipped, validGames.Count);
+            updated, skipped, validPairs.Count);
     }
 
     private static bool TryParsePrice(string? priceCents, out decimal price)

@@ -103,7 +103,6 @@ public class DetailsModel : PageModel
             return NotFound();
 
         Game = game;
-        SanitizedDescription = _descriptionSanitizer.Sanitize(game.Description);
         IsRegisteredUser = User.IsInRole("User");
 
         if (IsRegisteredUser && TryGetUserId(out var userId))

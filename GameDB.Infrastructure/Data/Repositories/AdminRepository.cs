@@ -1,5 +1,8 @@
 using GameDB.Application.DTOs;
 using GameDB.Application.Interfaces;
+using GameDB.Application.Services;
+using GameDB.Domain.Enums;
+using GameDB.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 
 namespace GameDB.Infrastructure.Data.Repositories;
@@ -8,31 +11,39 @@ public sealed class AdminRepository(AppDbContext db) : IAdminRepository
 {
     public async Task<AdminStatsDto> GetStatsAsync(CancellationToken ct = default)
     {
-        var total = await db.Games.CountAsync(ct);
-        var withDetails = await db.Games.CountAsync(
-            g => g.Description != null && g.Description != "", ct);
-        var withSteam = await db.Games.CountAsync(g => g.SteamAppId != null, ct);
-        var withPrice = await db.Games.CountAsync(g => g.GameOffers.Any(), ct);
-        var steamNoPrice = await db.Games.CountAsync(
-            g => g.SteamAppId != null && !g.GameOffers.Any(), ct);
-        var lastSync = await db.GameOffers.MaxAsync(o => (DateTime?)o.LastSyncedAt, ct);
+        var counts = await db.Games
+            .AsNoTracking()
+            .GroupBy(_ => 1)
+            .Select(g => new
+            {
+                Total        = g.Count(),
+                Basic        = g.Count(x => x.ImportStatus == GameImportStatus.Basic),
+                Full         = g.Count(x => x.ImportStatus == GameImportStatus.Full),
+                WithPrice    = g.Count(x => x.GameOffers.Any()),
+                BasicNoPrice = g.Count(x => x.ImportStatus == GameImportStatus.Basic
+                                            && !x.GameOffers.Any()),
+            })
+            .FirstOrDefaultAsync(ct);
 
-        return new AdminStatsDto(
-            TotalGames: total,
-            WithDetails: withDetails,
-            WithoutDetails: total - withDetails,
-            WithSteamAppId: withSteam,
-            WithPrice: withPrice,
-            WithoutPrice: total - withPrice,
-            SteamWithoutPrice: steamNoPrice,
-            LastPriceSyncAt: lastSync);
+        // Separate table — still just one query
+        var lastSync = await db.GameOffers
+            .AsNoTracking()
+            .MaxAsync(o => (DateTime?)o.LastSyncedAt, ct);
+
+        return counts is null
+            ? new AdminStatsDto(0, 0, 0, 0, 0, 0, lastSync)
+            : new AdminStatsDto(
+                TotalGames:        counts.Total,
+                StatusBasic:       counts.Basic,
+                StatusFull:        counts.Full,
+                WithPrice:         counts.WithPrice,
+                WithoutPrice:      counts.Total - counts.WithPrice,
+                BasicWithoutPrice: counts.BasicNoPrice,
+                LastPriceSyncAt:   lastSync);
     }
 
-    public Task<int> CountWithoutDetailsAsync(CancellationToken ct = default)
-        => db.Games.CountAsync(
-            g => g.SteamAppId != null &&
-                 (g.Description == null || g.Description == ""),
-            ct);
+    public Task<int> CountByStatusAsync(GameImportStatus status, CancellationToken ct = default)
+        => db.Games.CountAsync(g => g.ImportStatus == status, ct);
 
     public async Task<AdminGameListDto> GetGamesAsync(
         AdminGameCoverageFilter filter,
@@ -41,31 +52,38 @@ public sealed class AdminRepository(AppDbContext db) : IAdminRepository
         string? search = null,
         CancellationToken ct = default)
     {
-        page = Math.Max(1, page);
+        page     = Math.Max(1, page);
         pageSize = Math.Clamp(pageSize, 10, 200);
 
         var q = db.Games.AsNoTracking();
 
+        // ── Пошук ────────────────────────────────────────────────────────────
         if (!string.IsNullOrWhiteSpace(search))
         {
             var term = search.Trim();
             if (int.TryParse(term, out var gameId))
-                q = q.Where(g => g.GameId == gameId || g.SteamAppId == gameId);
+            {
+                // Шукаємо по GameId або по Steam ExternalId
+                q = q.Where(g => g.GameId == gameId
+                    || g.ExternalIds.Any(e =>
+                        e.ShopId == SteamSpyImportService.SteamShopId && e.ExternalId == term));
+            }
             else
+            {
                 q = q.Where(g => EF.Functions.ILike(g.Name, $"%{term}%"));
+            }
         }
 
+        // ── Фільтр ────────────────────────────────────────────────────────────
         q = filter switch
         {
-            AdminGameCoverageFilter.NoDetails => q.Where(g =>
-                g.Description == null || g.Description == ""),
-            AdminGameCoverageFilter.HasDetails => q.Where(g =>
-                g.Description != null && g.Description != ""),
-            AdminGameCoverageFilter.NoPrice => q.Where(g => !g.GameOffers.Any()),
-            AdminGameCoverageFilter.HasPrice => q.Where(g => g.GameOffers.Any()),
-            AdminGameCoverageFilter.NoSteamAppId => q.Where(g => g.SteamAppId == null),
-            AdminGameCoverageFilter.SteamNoPrice => q.Where(g =>
-                g.SteamAppId != null && !g.GameOffers.Any()),
+            AdminGameCoverageFilter.StatusBasic   => q.Where(g => g.ImportStatus == GameImportStatus.Basic),
+            AdminGameCoverageFilter.StatusFull    => q.Where(g => g.ImportStatus == GameImportStatus.Full),
+            AdminGameCoverageFilter.NoPrice       => q.Where(g => !g.GameOffers.Any()),
+            AdminGameCoverageFilter.HasPrice      => q.Where(g =>  g.GameOffers.Any()),
+            AdminGameCoverageFilter.NoExternalId  => q.Where(g => !g.ExternalIds.Any()),
+            AdminGameCoverageFilter.BasicNoPrice  => q.Where(g =>
+                g.ImportStatus == GameImportStatus.Basic && !g.GameOffers.Any()),
             _ => q,
         };
 
@@ -78,10 +96,13 @@ public sealed class AdminRepository(AppDbContext db) : IAdminRepository
             .Select(g => new AdminGameRowDto(
                 g.GameId,
                 g.Name,
-                g.SteamAppId,
-                g.Description != null && g.Description != "",
+                g.ImportStatus,
+                g.ExternalIds
+                    .Where(e => e.ShopId == SteamSpyImportService.SteamShopId)
+                    .Select(e => e.ExternalId)
+                    .FirstOrDefault(),
                 g.GameOffers.Any(),
-                g.GameOffers.Max(o => o.LastSyncedAt),
+                g.GameOffers.Max(o => (DateTime?)o.LastSyncedAt),
                 g.Rating))
             .ToListAsync(ct);
 

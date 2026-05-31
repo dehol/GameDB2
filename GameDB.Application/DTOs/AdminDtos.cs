@@ -1,24 +1,24 @@
+using GameDB.Domain.Enums;
 namespace GameDB.Application.DTOs;
 
 public enum AdminGameCoverageFilter
 {
     All,
-    NoDetails,
-    HasDetails,
+    StatusBasic,
+    StatusFull,
     NoPrice,
     HasPrice,
-    NoSteamAppId,
-    SteamNoPrice,
+    NoExternalId,        // ігри без жодного ExternalId
+    BasicNoPrice         // Basic + немає GameOffers
 }
 
-public record AdminStatsDto(
+public sealed record AdminStatsDto(
     int TotalGames,
-    int WithDetails,
-    int WithoutDetails,
-    int WithSteamAppId,
+    int StatusBasic,
+    int StatusFull,
     int WithPrice,
     int WithoutPrice,
-    int SteamWithoutPrice,
+    int BasicWithoutPrice,       // Basic-ігри без ціни — черга для price sync
     DateTime? LastPriceSyncAt);
 
 public record ImportJobStatusDto(
@@ -35,20 +35,19 @@ public record ImportJobStatusDto(
 public record AdminDashboardDto(
     AdminStatsDto Stats,
     ImportJobStatusDto GameEnrichment,
-    ImportJobStatusDto PriceSync,
-    int PendingDetailsCount);
+    ImportJobStatusDto PriceSync);
 
-public record AdminGameRowDto(
-    int GameId,
-    string Name,
-    int? SteamAppId,
-    bool HasDetails,
-    bool HasPrice,
-    DateTime? LastPriceSyncAt,
+public sealed record AdminGameRowDto(
+    int     GameId,
+    string  Name,
+    GameImportStatus ImportStatus,
+    string? SteamExternalId,     // null якщо не Steam-гра
+    bool    HasPrice,
+    DateTime? LastSyncedAt,
     double? Rating);
 
-public record AdminGameListDto(
-    IReadOnlyList<AdminGameRowDto> Items,
+public sealed record AdminGameListDto(
+    List<AdminGameRowDto> Items,
     int TotalCount,
     int Page,
     int PageSize,

@@ -1,29 +1,31 @@
 namespace GameDB.Application.DTOs;
 
 public record UserGameListItemDto(
-    int GameId,
-    string Name,
-    string? HeaderImage,
-    double? Rating,
+    int      GameId,
+    string   Name,
+    string?  HeaderImage,
+    double?  Rating,
     decimal? BestFinalPrice,
-    string? BestCurrency,
-    int BestDiscount,
+    string?  BestCurrency,
+    int      BestDiscount,
     DateTime AddedAt,
-    int? SteamAppId
+    /// <summary>ExternalId з магазину Steam (рядок, напр. "730"). Null якщо гра не має Steam-запису.</summary>
+    string?  SteamExternalId
 );
 
 public record UserLibraryItemDto(
-    int GameId,
-    string Name,
-    string? HeaderImage,
-    double? Rating,
+    int      GameId,
+    string   Name,
+    string?  HeaderImage,
+    double?  Rating,
     decimal? BestFinalPrice,
-    string? BestCurrency,
-    int BestDiscount,
+    string?  BestCurrency,
+    int      BestDiscount,
     DateTime AddedAt,
-    int ShopId,
-    string ShopName,
-    int? SteamAppId
+    int      ShopId,
+    string   ShopName,
+    /// <summary>ExternalId з магазину Steam (рядок, напр. "730"). Null якщо гра не має Steam-запису.</summary>
+    string?  SteamExternalId
 );
 
 public record AlertListItemDto(
