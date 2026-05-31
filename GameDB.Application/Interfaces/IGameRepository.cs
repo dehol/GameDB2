@@ -11,6 +11,10 @@ public interface IGameRepository
     Task<int>        GetTotalGamesCountAsync(CancellationToken ct = default);
     Task<List<Game>> GetGamesBatchAsync(int skip, int take, CancellationToken ct = default);
 
+    /// <summary>Повертає ігри, у яких LastSyncedAt IS NULL або менше за <paramref name="since"/>.</summary>
+    Task<int>        GetGamesNotSyncedSinceCountAsync(DateTime since, CancellationToken ct = default);
+    Task<List<Game>> GetGamesNotSyncedSinceBatchAsync(DateTime since, int skip, int take, CancellationToken ct = default);
+
     // ── Запити для імпорту ───────────────────────────────────────────────────
 
     /// <summary>Повертає всі ExternalId для вказаного магазину (для дедублікації при імпорті).</summary>

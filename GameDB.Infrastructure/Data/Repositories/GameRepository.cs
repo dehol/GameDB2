@@ -31,6 +31,35 @@ public sealed class GameRepository(AppDbContext db) : IGameRepository
             .Skip(skip).Take(take)
             .ToListAsync(ct);
 
+    // ── Not-synced-since queries ─────────────────────────────────────────────
+
+    /// <summary>
+    /// Ігри, у яких немає жодного GameOffer з LastSyncedAt >= <paramref name="since"/>.
+    /// Тобто: або взагалі немає ціни, або вона синхронізована до вказаної дати.
+    /// </summary>
+    private IQueryable<Game> QueryNotSyncedSince(DateTime since)
+    {
+        // Npgsql вимагає Kind=Utc для timestamptz.
+        // Дата з UI приходить як Unspecified (тільки дата, без часу) — трактуємо як початок дня UTC.
+        var sinceUtc = since.Kind == DateTimeKind.Utc
+            ? since
+            : DateTime.SpecifyKind(since, DateTimeKind.Utc);
+
+        return db.Games.AsNoTracking()
+            .Where(g => !g.GameOffers.Any(o => o.LastSyncedAt != null && o.LastSyncedAt >= sinceUtc));
+    }
+
+    public Task<int> GetGamesNotSyncedSinceCountAsync(DateTime since, CancellationToken ct = default)
+        => QueryNotSyncedSince(since).CountAsync(ct);
+
+    public Task<List<Game>> GetGamesNotSyncedSinceBatchAsync(DateTime since, int skip, int take, CancellationToken ct = default)
+        => QueryNotSyncedSince(since)
+            .Include(g => g.GameOffers)
+            .Include(g => g.ExternalIds)
+            .OrderBy(g => g.GameId)
+            .Skip(skip).Take(take)
+            .ToListAsync(ct);
+
     // ── Запити для імпорту ───────────────────────────────────────────────────
 
     public async Task<HashSet<string>> GetExistingExternalIdsAsync(int shopId, CancellationToken ct = default)

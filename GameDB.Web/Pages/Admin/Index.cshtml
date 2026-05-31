@@ -105,10 +105,19 @@
                 </div>
                 <div class="d-flex gap-2 mb-2">
                     <button type="button" class="btn btn-warning btn-sm flex-grow-1" id="btnPriceStart">
-                        ▶ Синхронізувати ціни
+                        ▶ Синхронізувати всі ціни
                     </button>
                     <button type="button" class="btn btn-outline-danger btn-sm" id="btnPriceStop">■</button>
                 </div>
+                <hr class="my-2" />
+                <p class="small text-muted mb-1">Тільки не синхронізовані після дати:</p>
+                <div class="input-group input-group-sm mb-2">
+                    <span class="input-group-text">Після</span>
+                    <input type="date" class="form-control" id="priceSinceDate" />
+                </div>
+                <button type="button" class="btn btn-outline-warning btn-sm w-100 mb-2" id="btnPriceSinceStart">
+                    ▶ Синхронізувати несинхронізовані
+                </button>
                 <div class="admin-progress d-none" id="priceProgressWrap">
                     <div class="progress" style="height: 8px;">
                         <div class="progress-bar" id="priceProgressBar" style="width: 0%"></div>

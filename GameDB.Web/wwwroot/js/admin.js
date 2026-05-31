@@ -202,6 +202,23 @@
         } catch (e) { toast(e.message, true); }
     });
 
+    el('btnPriceSinceStart').addEventListener('click', async () => {
+        const batch = el('priceBatchSize').value || '100';
+        const since = el('priceSinceDate').value;
+        if (!since) {
+            toast('Оберіть дату для фільтрації', true);
+            return;
+        }
+        try {
+            // since — формат YYYY-MM-DD, передаємо як ISO date
+            const params = `batchSize=${batch}&notSyncedSince=${encodeURIComponent(since)}`;
+            await post('/import/prices/start', params);
+            toast(`Синхронізація цін (після ${since}) запущена`);
+            refreshDashboard();
+            startPolling();
+        } catch (e) { toast(e.message, true); }
+    });
+
     el('btnPriceStop').addEventListener('click', async () => {
         try {
             await post('/import/prices/stop');

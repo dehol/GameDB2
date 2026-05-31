@@ -85,7 +85,7 @@ public sealed class AdminService : IAdminService
         _enrichmentState.LastMessage = "Зупинено вручну.";
     }
 
-    public bool StartPriceSync(int batchSize)
+    public bool StartPriceSync(int batchSize, DateTime? notSyncedSince = null)
     {
         if (_priceState.IsRunning)
             return false;
@@ -105,13 +105,32 @@ public sealed class AdminService : IAdminService
 
             try
             {
-                var total = await gameRepo.GetTotalGamesCountAsync(token);
+                int total;
+                Func<int, int, CancellationToken, Task<List<Domain.Entities.Game>>> getBatch;
+
+                if (notSyncedSince.HasValue)
+                {
+                    var since = notSyncedSince.Value;
+                    total    = await gameRepo.GetGamesNotSyncedSinceCountAsync(since, token);
+                    getBatch = (skip, take, ct) => gameRepo.GetGamesNotSyncedSinceBatchAsync(since, skip, take, ct);
+                    _logger.LogInformation(
+                        "SteamSpy price sync (not-synced-since {Since}): {Total} games",
+                        since.ToString("yyyy-MM-dd"), total);
+                }
+                else
+                {
+                    total    = await gameRepo.GetTotalGamesCountAsync(token);
+                    getBatch = (skip, take, ct) => gameRepo.GetGamesBatchAsync(skip, take, ct);
+                }
+
                 _priceState.ResetProgress(total);
-                _priceState.LastMessage = "Синхронізація цін (SteamSpy) запущена.";
+                _priceState.LastMessage = notSyncedSince.HasValue
+                    ? $"Синхронізація цін (після {notSyncedSince.Value:dd.MM.yyyy}) запущена."
+                    : "Синхронізація цін (SteamSpy) запущена.";
 
                 for (var skip = 0; skip < total && !token.IsCancellationRequested; skip += batchSize)
                 {
-                    var batch = await gameRepo.GetGamesBatchAsync(skip, batchSize, token);
+                    var batch = await getBatch(skip, batchSize, token);
                     _priceState.LastBatchSize   = batch.Count;
                     _priceState.ProcessedGames  = Math.Min(skip + batch.Count, total);
                     _priceState.LastMessage     =
@@ -121,7 +140,6 @@ public sealed class AdminService : IAdminService
                         await priceSync.SyncPricesBatchAsync(batch, token);
                 }
 
-                // Перевіряємо після циклу — міг скасуватись на останньому await
                 if (token.IsCancellationRequested)
                 {
                     _priceState.MarkFinished("Синхронізацію зупинено.");
@@ -136,13 +154,11 @@ public sealed class AdminService : IAdminService
             }
             catch (OperationCanceledException)
             {
-                // await всередині циклу теж може кинути — обробляємо окремо, не як помилку
                 _priceState.MarkFinished("Синхронізацію зупинено.");
                 _logger.LogInformation("SteamSpy price sync cancelled via token.");
             }
             catch (Exception ex)
             {
-                // Тільки справжні помилки потрапляють сюди
                 _priceState.LastError = ex.Message;
                 _priceState.MarkFinished("Помилка синхронізації.");
                 _logger.LogError(ex, "SteamSpy price sync failed.");

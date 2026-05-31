@@ -70,12 +70,18 @@ public class AdminController : ControllerBase
 
     [HttpPost("import/prices/start")]
     [ValidateAntiForgeryToken]
-    public IActionResult StartPrices([FromQuery] int batchSize = 100)
+    public IActionResult StartPrices(
+        [FromQuery] int batchSize = 100,
+        [FromQuery] DateTime? notSyncedSince = null)
     {
-        if (!_admin.StartPriceSync(batchSize))
+        if (!_admin.StartPriceSync(batchSize, notSyncedSince))
             return Conflict(new { message = "Синхронізація цін уже виконується." });
 
-        return Accepted(new { message = "Синхронізацію цін (SteamSpy) запущено." });
+        var msg = notSyncedSince.HasValue
+            ? $"Синхронізацію цін (не синхронізовані після {notSyncedSince.Value:dd.MM.yyyy}) запущено."
+            : "Синхронізацію цін (SteamSpy) запущено.";
+
+        return Accepted(new { message = msg });
     }
 
     [HttpPost("import/prices/stop")]

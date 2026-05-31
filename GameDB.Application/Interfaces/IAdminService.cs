@@ -15,6 +15,6 @@ public interface IAdminService
     Task<int> ImportBasicGamesAsync(CancellationToken ct = default);
     void StartEnrichmentImport(bool overwriteExisting = false);
     void StopEnrichmentImport();
-    bool StartPriceSync(int batchSize);
+    bool StartPriceSync(int batchSize, DateTime? notSyncedSince = null);
     void StopPriceSync();
 }
