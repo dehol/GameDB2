@@ -65,7 +65,7 @@
         el('enrichmentJobStatus').innerHTML = jobHtml(d.gameEnrichment, 'Збагачення');
 
         const price = d.priceSync;
-        el('priceJobStatus').innerHTML = jobHtml(price, 'SteamSpy');
+        el('priceJobStatus').innerHTML = jobHtml(price, 'Ціни');
 
         const wrap = el('priceProgressWrap');
         if (price.isRunning && price.processed != null) {
@@ -157,12 +157,18 @@
     });
 
     el('btnBasicImport').addEventListener('click', async () => {
+        const providerSelect = el('basicImportProvider');
+        const provider = providerSelect?.value?.trim();
+        const label = provider
+            ? (providerSelect?.selectedOptions[0]?.textContent || provider)
+            : 'усі магазини';
         el('btnBasicImport').disabled = true;
         el('basicImportResult').textContent = 'Імпорт…';
         try {
-            const data = await post('/import/basic');
-            el('basicImportResult').textContent = `Додано: ${data.imported} ігор`;
-            toast(`Basic import: +${data.imported}`);
+            const query = provider ? `provider=${encodeURIComponent(provider)}` : '';
+            const data = await post('/import/basic', query);
+            el('basicImportResult').textContent = `Додано: ${data.imported} ігор (${label})`;
+            toast(`Basic import (${label}): +${data.imported}`);
             refreshDashboard();
             loadGames();
         } catch (e) {

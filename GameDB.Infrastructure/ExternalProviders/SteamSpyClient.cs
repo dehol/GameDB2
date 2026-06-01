@@ -3,7 +3,6 @@ using GameDB.Application.DTOs;
 using GameDB.Application.Interfaces;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
-
 namespace GameDB.Infrastructure.ExternalProviders;
 
 public sealed class SteamSpyClient : ISteamSpyClient
@@ -11,10 +10,9 @@ public sealed class SteamSpyClient : ISteamSpyClient
     private readonly HttpClient _httpClient;
     private readonly ILogger<SteamSpyClient> _logger;
     private readonly string _baseUrl;
-
-    private static readonly JsonSerializerOptions JsonOptions = new()
+    private static readonly JsonSerializerOptions JsonOpts = new()
     {
-        PropertyNameCaseInsensitive = true
+        PropertyNameCaseInsensitive = true,
     };
 
     public SteamSpyClient(
@@ -43,7 +41,7 @@ public sealed class SteamSpyClient : ISteamSpyClient
         try
         {
             json = json.Replace("\"tags\":[]", "\"tags\":null");
-            return JsonSerializer.Deserialize<SteamSpyAppDetailsDto>(json, JsonOptions);
+            return JsonSerializer.Deserialize<SteamSpyAppDetailsDto>(json, JsonOpts);
         }
         catch (JsonException ex)
         {
@@ -58,7 +56,7 @@ public sealed class SteamSpyClient : ISteamSpyClient
     {
         var result = new Dictionary<int, SteamSpyAppListItemDto>();
 
-        for (var page = 0; ; page++)
+        for (var page = 0; page < 87; page++)
         {
             ct.ThrowIfCancellationRequested();
 
@@ -83,7 +81,7 @@ public sealed class SteamSpyClient : ISteamSpyClient
             try
             {
                 data = JsonSerializer.Deserialize<Dictionary<string, SteamSpyAppListItemDto>>(
-                    json, JsonOptions);
+                    json, JsonOpts);
             }
             catch (JsonException ex)
             {

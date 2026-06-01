@@ -64,8 +64,17 @@
     <div class="row g-3 mb-4">
         <div class="col-lg-4">
             <div class="admin-panel">
-                <h2 class="h6 admin-panel-title">Каталог Steam</h2>
-                <p class="small text-muted">Базовий список appid + назва з SteamSpy.</p>
+                <h2 class="h6 admin-panel-title">Каталоги магазинів</h2>
+                <p class="small text-muted">Базовий список ігор з вибраного магазину.</p>
+                <div class="input-group input-group-sm mb-2">
+                    <span class="input-group-text">Магазин</span>
+                    <select class="form-select" id="basicImportProvider">
+                        <option value="">Усі магазини</option>
+                        <option value="steam">Steam</option>
+                        <option value="gog">GOG</option>
+                        <option value="epic">Epic Games</option>
+                    </select>
+                </div>
                 <button type="button" class="btn btn-primary btn-sm w-100 mb-2" id="btnBasicImport">
                     Імпорт нових ігор (basic)
                 </button>
@@ -77,14 +86,14 @@
             <div class="admin-panel">
                 <h2 class="h6 admin-panel-title">Збагачення ігор</h2>
                 <p class="small text-muted mb-2">
-                    SteamSpy (метадані, жанри, теги) + IGDB (опис). Черга: <strong id="pendingDetails">—</strong>
+                    Деталі та метадані з магазинів. Черга: <strong id="pendingDetails">—</strong>
                 </p>
                 <div class="form-check form-switch small mb-2">
                     <input class="form-check-input" type="checkbox" id="enrichOverwrite" />
                     <label class="form-check-label" for="enrichOverwrite">Перезаписувати існуючі дані</label>
                 </div>
                 <button type="button" class="btn btn-success btn-sm w-100 mb-2" id="btnEnrichStart">
-                    ▶ Збагачення (SteamSpy + IGDB)
+                    ▶ Збагачення (усі магазини)
                 </button>
                 <button type="button" class="btn btn-outline-danger btn-sm w-100" id="btnEnrichStop">
                     ■ Зупинити збагачення
@@ -95,7 +104,7 @@
 
         <div class="col-lg-4">
             <div class="admin-panel">
-                <h2 class="h6 admin-panel-title">Ціни (SteamSpy)</h2>
+                <h2 class="h6 admin-panel-title">Ціни (усі магазини)</h2>
                 <p class="small text-muted mb-2">
                     Остання синхронізація: <span id="lastPriceSync">—</span>
                 </p>

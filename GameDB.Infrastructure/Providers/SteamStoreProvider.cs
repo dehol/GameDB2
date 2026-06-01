@@ -1,34 +1,30 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
+using GameDB.Application.Constants;
 using GameDB.Application.DTOs.Store;
 using GameDB.Application.Interfaces;
 using GameDB.Application.Options;
 using GameDB.Application.Services;
-using GameDB.Application.Services.Import;
 using Microsoft.Extensions.Options;
 
 namespace GameDB.Infrastructure.Providers;
 
 public sealed class SteamStoreProvider(
-    ISteamSpyClient client,
+    ISteamSpyClient spyClient,
+    ISteamClient steamClient,
     SteamGameFilter filter,
     IOptions<SteamSpyImportOptions> options) : IStoreProvider
 {
     private readonly SteamSpyImportOptions _opts = options.Value;
 
-    public int    ShopId                 => 1;
-    public string Slug                   => "steam";
-    public int    DelayBetweenRequestsMs => _opts.DelayBetweenRequestsMs;
+    public int ShopId => ShopIds.Steam;
+    public string Slug => "steam";
+    public int DelayBetweenRequestsMs => _opts.DelayBetweenRequestsMs;
 
     public async Task<IReadOnlyCollection<StoreGameListItem>> GetGameListAsync(CancellationToken ct)
     {
-        var raw = await client.GetAppListAsync(ct);
+        var raw = await steamClient.GetAppListAsync(ct);
         return raw
-            .Where(r => r.AppId > 0 && !string.IsNullOrWhiteSpace(r.Name))
-            .Select(r => new StoreGameListItem(r.AppId.ToString(), r.Name!))
+            .Where(r => r.Appid > 0 && !string.IsNullOrWhiteSpace(r.Name))
+            .Select(r => new StoreGameListItem(r.Appid.ToString(), r.Name!))
             .ToList();
     }
 
@@ -38,7 +34,7 @@ public sealed class SteamStoreProvider(
     public async Task<StoreGameDetails?> GetGameDetailsAsync(string externalId, CancellationToken ct)
     {
         if (!int.TryParse(externalId, out var appId)) return null;
-        var dto = await client.GetAppDetailsAsync(appId, ct);
+        var dto = await spyClient.GetAppDetailsAsync(appId, ct);
         if (dto is null || string.IsNullOrWhiteSpace(dto.Name)
             || dto.Name.Equals("none", StringComparison.OrdinalIgnoreCase))
             return null;
@@ -79,7 +75,7 @@ public sealed class SteamStoreProvider(
     public async Task<StorePriceInfo?> GetPriceAsync(string externalId, CancellationToken ct)
     {
         if (!int.TryParse(externalId, out var appId)) return null;
-        var dto = await client.GetAppDetailsAsync(appId, ct);
+        var dto = await spyClient.GetAppDetailsAsync(appId, ct);
         if (dto is null) return null;
 
         if (!TryParsePrice(dto.InitialPrice ?? dto.Price, out var price)) return null;

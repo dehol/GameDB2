@@ -30,10 +30,17 @@ public class AdminController : ControllerBase
 
     [HttpPost("import/basic")]
     [ValidateAntiForgeryToken]
-    public async Task<IActionResult> ImportBasic(CancellationToken ct)
+    public async Task<IActionResult> ImportBasic([FromQuery] string? provider, CancellationToken ct)
     {
-        var imported = await _admin.ImportBasicGamesAsync(ct);
-        return Ok(new { imported });
+        try
+        {
+            var imported = await _admin.ImportBasicGamesAsync(provider, ct);
+            return Ok(new { imported });
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
     }
 
     [HttpPost("import/enrich/start")]
@@ -41,7 +48,7 @@ public class AdminController : ControllerBase
     public IActionResult StartEnrichment([FromQuery] bool overwrite = false)
     {
         _admin.StartEnrichmentImport(overwrite);
-        return Accepted(new { message = "Збагачення (SteamSpy) запущено." });
+        return Accepted(new { message = "Збагачення запущено." });
     }
 
     [HttpPost("import/enrich/stop")]
@@ -57,7 +64,7 @@ public class AdminController : ControllerBase
     public IActionResult StartDetailsLegacy([FromQuery] bool overwrite = false)
     {
         _admin.StartEnrichmentImport(overwrite);
-        return Accepted(new { message = "Збагачення (SteamSpy) запущено." });
+        return Accepted(new { message = "Збагачення запущено." });
     }
 
     [HttpPost("import/details/stop")]
@@ -79,7 +86,7 @@ public class AdminController : ControllerBase
 
         var msg = notSyncedSince.HasValue
             ? $"Синхронізацію цін (не синхронізовані після {notSyncedSince.Value:dd.MM.yyyy}) запущено."
-            : "Синхронізацію цін (SteamSpy) запущено.";
+            : "Синхронізацію цін запущено.";
 
         return Accepted(new { message = msg });
     }

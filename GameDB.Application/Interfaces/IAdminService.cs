@@ -12,7 +12,7 @@ public interface IAdminService
         string? search = null,
         CancellationToken ct = default);
 
-    Task<int> ImportBasicGamesAsync(CancellationToken ct = default);
+    Task<int> ImportBasicGamesAsync(string? providerSlug = null, CancellationToken ct = default);
     void StartEnrichmentImport(bool overwriteExisting = false);
     void StopEnrichmentImport();
     bool StartPriceSync(int batchSize, DateTime? notSyncedSince = null);

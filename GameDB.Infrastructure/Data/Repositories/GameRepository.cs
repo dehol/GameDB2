@@ -150,6 +150,13 @@ public sealed class GameRepository(AppDbContext db) : IGameRepository
             .Include(g => g.ExternalIds)
             .FirstOrDefaultAsync(g => g.NormalizedName == normalizedName, ct);
 
+    public async Task<List<Game>> GetGamesByNormalizedNamesAsync(IEnumerable<string> names, CancellationToken ct)
+    {
+        return await db.Games
+            .Include(g => g.ExternalIds) // Якщо потрібні для лінкування
+            .Where(g => names.Contains(g.NormalizedName))
+            .ToListAsync(ct);
+    }
     public async Task AddExternalIdAsync(GameExternalId externalId, CancellationToken ct = default)
     {
         db.Set<GameExternalId>().Add(externalId);

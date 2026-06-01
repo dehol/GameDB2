@@ -10,9 +10,7 @@ using GameDB.Infrastructure.Data.Repositories;
 using GameDB.Infrastructure.ExternalProviders;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using GameDB.Infrastructure.Catalog;
-using Polly;
-using Microsoft.Extensions.Http.Resilience;
-using System.Net;
+using GameDB.Infrastructure.Http;
 
 // Bootstrap-логер
 Log.Logger = new LoggerConfiguration()
@@ -83,54 +81,50 @@ try
     builder.Services.AddHttpClient<SteamOpenIdService>();
 
     // ── Зовнішні HTTP-клієнти ────────────────────────────────────────────────
-    builder.Services.AddHttpClient<ISteamClient, SteamClient>();
-    builder.Services
-    .AddHttpClient<ISteamSpyClient, SteamSpyClient>()
-    .AddResilienceHandler("steamspy", pipeline =>
-    {
-        // 1. Retry — повторює при мережевих помилках і 5xx
-        pipeline.AddRetry(new HttpRetryStrategyOptions
-        {
-            MaxRetryAttempts = 3,
-            Delay             = TimeSpan.FromSeconds(2),
-            BackoffType       = DelayBackoffType.Exponential, // 2s, 4s, 8s
-            ShouldHandle      = args => args.Outcome switch
-            {
-                // Повторюємо при мережевій помилці або 5xx
-                { Exception: HttpRequestException }    => ValueTask.FromResult(true),
-                { Result.StatusCode: >= HttpStatusCode.InternalServerError } => ValueTask.FromResult(true),
-                _ => ValueTask.FromResult(false)
-            }
-        });
+// ISteamClient залишається без змін (OAuth + UserLibrary, не імпорт)
+builder.Services.AddHttpClient<ISteamClient, SteamClient>();
 
-        // 2. Rate limit (429) — окрема стратегія з довшою паузою
-        pipeline.AddRetry(new HttpRetryStrategyOptions
-        {
-            MaxRetryAttempts = 5,
-            Delay             = TimeSpan.FromSeconds(10),
-            BackoffType       = DelayBackoffType.Constant,
-            ShouldHandle      = args => ValueTask.FromResult(
-                args.Outcome.Result?.StatusCode == HttpStatusCode.TooManyRequests)
-        });
+// Всі store-клієнти з єдиним Polly pipeline
+builder.Services
+    .AddHttpClient<GameDB.Application.Interfaces.ISteamSpyClient,
+                   GameDB.Infrastructure.ExternalProviders.SteamSpyClient>()
+    .AddStoreProviderResiliency("steamspy");
 
-        // 3. Timeout — кожен окремий запит не довше 30с
-        pipeline.AddTimeout(TimeSpan.FromSeconds(30));
-    });
+builder.Services
+    .AddHttpClient<GameDB.Application.Interfaces.IGogClient,
+                   GameDB.Infrastructure.ExternalProviders.GogClient>()
+    .AddStoreProviderResiliency("gog");
 
-    // ── Бізнес-сервіси ───────────────────────────────────────────────────────
-    builder.Services.AddScoped<PriceManagerService>();
-    builder.Services.AddSingleton<SteamGameFilter>();
+builder.Services
+    .AddHttpClient<GameDB.Application.Interfaces.IEGDataClient,
+                   GameDB.Infrastructure.ExternalProviders.EGDataClient>()
+    .AddStoreProviderResiliency("egdata");
 
-    // ── Додано для рефакторингу імпорту ──────────────────────────────────────
-    builder.Services.Configure<GameDB.Application.Options.StoreImportOptions>(
-        builder.Configuration.GetSection("StoreImport"));
-    builder.Services.AddScoped<GameDB.Application.Interfaces.IStoreProvider, GameDB.Infrastructure.Providers.SteamStoreProvider>();
-    builder.Services.AddScoped<GameDB.Application.Services.Import.StoreImportService>();
-    builder.Services.AddScoped<GameDB.Application.Services.Import.StoreGameMapper>();
-    builder.Services.AddSingleton<GameDB.Application.Services.Import.EnrichmentOperationState>();
-    builder.Services.AddSingleton<GameDB.Application.Services.Import.PriceSyncOperationState>();
-    builder.Services.AddHostedService<GameDB.Infrastructure.Workers.PriceSyncWorker>();
-    // ─────────────────────────────────────────────────────────────────────────
+// ── Store providers & import ─────────────────────────────────────────────
+builder.Services.Configure<GameDB.Application.Options.StoreImportOptions>(
+    builder.Configuration.GetSection("StoreImport"));
+builder.Services.Configure<GameDB.Application.Options.GogImportOptions>(
+    builder.Configuration.GetSection("Gog"));
+builder.Services.Configure<GameDB.Application.Options.EGDataImportOptions>(
+    builder.Configuration.GetSection("EGData"));
+
+// Провайдери реєструються як IStoreProvider (порядок = порядок обходу в workers)
+builder.Services.AddScoped<GameDB.Application.Interfaces.IStoreProvider,
+    GameDB.Infrastructure.Providers.SteamStoreProvider>();
+builder.Services.AddScoped<GameDB.Application.Interfaces.IStoreProvider,
+    GameDB.Infrastructure.Providers.GogStoreProvider>();
+builder.Services.AddScoped<GameDB.Application.Interfaces.IStoreProvider,
+    GameDB.Infrastructure.Providers.EGDataStoreProvider>();
+
+// ── Бізнес-сервіси ───────────────────────────────────────────────────────
+builder.Services.AddScoped<PriceManagerService>();
+builder.Services.AddSingleton<SteamGameFilter>();
+builder.Services.AddScoped<GameDB.Application.Services.Import.StoreImportService>();
+builder.Services.AddScoped<GameDB.Application.Services.Import.StoreGameMapper>();
+builder.Services.AddSingleton<GameDB.Application.Services.Import.EnrichmentOperationState>();
+builder.Services.AddSingleton<GameDB.Application.Services.Import.PriceSyncOperationState>();
+builder.Services.AddHostedService<GameDB.Infrastructure.Workers.PriceSyncWorker>();
+// ─────────────────────────────────────────────────────────────────────────
 
     builder.Services.AddScoped<ICatalogService, CatalogService>();
     builder.Services.AddScoped<IUserCollectionService, UserCollectionService>();

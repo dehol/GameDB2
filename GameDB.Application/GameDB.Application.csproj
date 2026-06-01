@@ -18,6 +18,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Folder Include="Constants\" />
     <Folder Include="Options\" />
     <Folder Include="Services\ItadImport\" />
     <Folder Include="Services\SteamImport\" />
