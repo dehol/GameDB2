@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using GameDB.Application.Interfaces;
@@ -7,12 +8,20 @@ using GameDB.Application.Services.Import;
 using GameDB.Domain.Enums;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 
 namespace GameDB.Infrastructure.Enrichment;
 
+/// <summary>
+/// FIX: Провайдери запускаються паралельно через Task.WhenAll.
+/// Кожен провайдер — окремий DbContext scope → немає конфліктів.
+/// Кожен провайдер незалежно відстежує власний overwrite offset.
+/// Помилка одного не зупиняє решту.
+/// </summary>
 public sealed class GameEnrichmentWorker(
     IServiceProvider serviceProvider,
-    EnrichmentOperationState state) : BackgroundService
+    EnrichmentOperationState state,
+    ILogger<GameEnrichmentWorker> logger) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -26,48 +35,62 @@ public sealed class GameEnrichmentWorker(
 
             try
             {
-                using var scope      = serviceProvider.CreateScope();
-                var importService    = scope.ServiceProvider.GetRequiredService<StoreImportService>();
-                var gamesRepo        = scope.ServiceProvider.GetRequiredService<IGameRepository>();
-                var providers        = scope.ServiceProvider.GetRequiredService<IEnumerable<IStoreProvider>>();
+                List<IStoreProvider> providers;
+                using (var scope = serviceProvider.CreateScope())
+                    providers = scope.ServiceProvider
+                        .GetRequiredService<IEnumerable<IStoreProvider>>().ToList();
 
-                foreach (var provider in providers)
-                {
-                    if (!state.IsRunning) break;
-                    state.CurrentProvider = provider.Slug;
-                    state.CurrentPhase    = "enrich";
-
-                    while (state.IsRunning && !stoppingToken.IsCancellationRequested)
-                    {
-                        var externalIds = state.OverwriteExisting
-                            ? await gamesRepo.GetExternalIdsBatchAsync(
-                                provider.ShopId, state.OverwriteSkip, 200, stoppingToken)
-                            : await gamesRepo.GetExternalIdsByStatusAsync(
-                                provider.ShopId, GameImportStatus.Basic, 200, stoppingToken);
-
-                        if (externalIds.Count == 0)
-                        {
-                            state.LastMessage = $"[{provider.Slug}] Збагачення завершено.";
-                            break;
-                        }
-
-                        state.BatchSize    = externalIds.Count;
-                        state.LastMessage  = $"[{provider.Slug}] Збагачення: {externalIds.Count} ігор…";
-
-                        await importService.EnrichBatchAsync(provider, externalIds, state, stoppingToken);
-
-                        if (state.OverwriteExisting)
-                            state.OverwriteSkip += externalIds.Count;
-                    }
-                }
+                await Task.WhenAll(providers.Select(p => EnrichProviderAsync(p, stoppingToken)));
 
                 state.MarkFinished("Збагачення завершено для всіх магазинів.");
             }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+            {
+                break;
+            }
             catch (Exception ex)
             {
+                logger.LogError(ex, "GameEnrichmentWorker: непередбачена помилка");
                 state.LastError = ex.Message;
                 await Task.Delay(10_000, stoppingToken);
             }
+        }
+    }
+
+    private async Task EnrichProviderAsync(IStoreProvider provider, CancellationToken stoppingToken)
+    {
+        // Власний offset — кожен провайдер незалежний (різні ShopId, різні набори ігор)
+        int overwriteSkip = 0;
+
+        try
+        {
+            while (state.IsRunning && !stoppingToken.IsCancellationRequested)
+            {
+                using var scope   = serviceProvider.CreateScope();
+                var repo          = scope.ServiceProvider.GetRequiredService<IGameRepository>();
+                var importService = scope.ServiceProvider.GetRequiredService<StoreImportService>();
+
+                var externalIds = state.OverwriteExisting
+                    ? await repo.GetExternalIdsBatchAsync(provider.ShopId, overwriteSkip, 200, stoppingToken)
+                    : await repo.GetExternalIdsByStatusAsync(provider.ShopId, GameImportStatus.Basic, 200, stoppingToken);
+
+                if (externalIds.Count == 0)
+                {
+                    logger.LogInformation("[{Slug}] Збагачення завершено", provider.Slug);
+                    break;
+                }
+
+                state.LastMessage = $"[{provider.Slug}] Збагачення: {externalIds.Count} ігор…";
+                await importService.EnrichBatchAsync(provider, externalIds, state, stoppingToken);
+
+                if (state.OverwriteExisting)
+                    overwriteSkip += externalIds.Count;
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "[{Slug}] Помилка збагачення провайдера", provider.Slug);
+            state.LastError = $"[{provider.Slug}] {ex.Message}";
         }
     }
 }

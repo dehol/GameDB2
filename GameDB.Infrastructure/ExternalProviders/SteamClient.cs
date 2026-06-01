@@ -153,13 +153,6 @@ public class SteamClient : ISteamClient
             // Оновлюємо стан для наступної ітерації циклу
             haveMoreResults = resultData.HaveMoreResults;
             
-            // Захист від зациклення: якщо last_appid не змінився, а Steam каже, що є ще дані — перериваємо
-            if (resultData.LastAppid <= lastAppId)
-            {
-                _logger.LogWarning("Steam API: LastAppid ({NewId}) не збільшився порівняно з попереднім ({OldId}). Перериваємо цикл.", resultData.LastAppid, lastAppId);
-                break;
-            }
-            
             lastAppId = resultData.LastAppid;
             pageCounter++;
 

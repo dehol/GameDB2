@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace GameDB.Application.DTOs;
 
 public sealed class SteamAppListResponse
@@ -8,7 +10,9 @@ public sealed class SteamAppListResponse
 public sealed class SteamAppListContainer
 {
     public List<SteamAppListItemDto> Apps { get; set; } = [];
+    [JsonPropertyName("have_more_results")]
     public bool HaveMoreResults { get; set; }
+    [JsonPropertyName("last_appid")]
     public int LastAppid { get; set; }
 }
 

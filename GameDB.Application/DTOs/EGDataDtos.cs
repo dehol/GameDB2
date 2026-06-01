@@ -9,6 +9,12 @@ public sealed class EGDataListResponseDto
 {
     [JsonPropertyName("elements")]
     public List<EGDataItemDto> Elements { get; init; } = [];
+    
+    [JsonIgnore]
+    public bool HasDataFromServer { get; set; }
+
+    [JsonPropertyName("paging")]
+    public EGDataPagingDto? Paging { get; init; }
 }
 
 public sealed class EGDataPagingDto

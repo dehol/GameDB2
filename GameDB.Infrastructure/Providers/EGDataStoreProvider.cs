@@ -7,48 +7,67 @@ using Microsoft.Extensions.Options;
 
 namespace GameDB.Infrastructure.Providers;
 
-/// <summary>
-/// Провайдер Epic Games Store через community API egdata.app.
-/// </summary>
 public sealed class EGDataStoreProvider(
     IEGDataClient client,
     IOptions<EGDataImportOptions> options) : IStoreProvider
 {
     private readonly EGDataImportOptions _opts = options.Value;
-
     private const int PageLimit = 1000;
 
     public int    ShopId                 => ShopIds.Epic;
     public string Slug                   => "epic";
     public int    DelayBetweenRequestsMs => _opts.DelayBetweenRequestsMs;
 
-    // ── Фаза 1 — список ──────────────────────────────────────────────────────
-
     public async Task<IReadOnlyCollection<StoreGameListItem>> GetGameListAsync(CancellationToken ct)
     {
         var result = new List<StoreGameListItem>();
         int page = 1;
+        int consecutiveErrors = 0;
+        const int maxRetries = 3; // Кількість спроб для однієї сторінки у разі помилки мережі
 
         while (true)
         {
             ct.ThrowIfCancellationRequested();
-
+            
             var dto = await client.GetItemsPageAsync(page, PageLimit, ct);
-            if (dto is null || dto.Elements.Count == 0) break;
+            
+            // 1. ОБРОБКА ПОМИЛОК (Якщо повернувся null через HTTP-збій або таймаут)
+            if (dto is null)
+            {
+                consecutiveErrors++;
+                if (consecutiveErrors >= maxRetries)
+                {
+                    // Замість break — логуємо і пропонуємо пропустити сторінку, щоб не вбивати весь імпорт
+                    page++;
+                    consecutiveErrors = 0;
+                    continue;
+                }
+                
+                // Робимо паузу трохи більшою, щоб сервер "оговтався"
+                await Task.Delay(_opts.DelayBetweenRequestsMs * 2, ct); 
+                continue;
+            }
 
+            // Якщо запит успішний — скидаємо лічильник помилок
+            consecutiveErrors = 0;
+
+            // 2. ПЕРЕВІРКА КІНЦЯ КАТАЛОГУ (Справжній вихід)
+            // Якщо сервер повернув повністю порожній масив — це фінал
+            if (!dto.HasDataFromServer) 
+            {
+                break;
+            }
+
+            // 3. ОБРОБКА ДАНИХ (Якщо сторінка не порожня ПІСЛЯ RemoveAll)
             foreach (var item in dto.Elements)
             {
                 if (!string.IsNullOrWhiteSpace(item.Title))
-                    result.Add(new StoreGameListItem(item.Id.ToString(), item.Title));
+                {
+                    result.Add(new StoreGameListItem(item.Id.ToString(), item.Title, item.ProductSlug));
+                }
             }
-
-            /*if (dto.Paging is not null)
-            {
-                var maxPages = (int)Math.Ceiling(dto.Paging.Total / (double)PageLimit);
-                if (page >= maxPages) break;
-            }
-            else break;*/ 
-
+            
+            // Переходимо далі, навіть якщо після RemoveAll на цій сторінці залишилось 0 ігор
             page++;
             await Task.Delay(_opts.DelayBetweenRequestsMs, ct);
         }
@@ -57,13 +76,9 @@ public sealed class EGDataStoreProvider(
     }
 
     public bool IsValidItem(StoreGameListItem item)
-        => !string.IsNullOrWhiteSpace(item.ExternalId)
-        && !string.IsNullOrWhiteSpace(item.Name);
+        => !string.IsNullOrWhiteSpace(item.ExternalId) && !string.IsNullOrWhiteSpace(item.Name);
 
-    // ── Фаза 2 — деталі ──────────────────────────────────────────────────────
-
-    public async Task<StoreGameDetails?> GetGameDetailsAsync(
-        string externalId, CancellationToken ct)
+    public async Task<StoreGameDetails?> GetGameDetailsAsync(string externalId, CancellationToken ct)
     {
         var dto = await client.GetItemDetailsAsync(externalId, ct);
         if (dto is null || string.IsNullOrWhiteSpace(dto.Title)) return null;
@@ -71,14 +86,11 @@ public sealed class EGDataStoreProvider(
         var genres = dto.Tags
             .Where(t => t.GroupName?.Equals("genre", StringComparison.OrdinalIgnoreCase) == true
                      && !string.IsNullOrWhiteSpace(t.Name))
-            .Select(t => t.Name!)
-            .ToArray();
+            .Select(t => t.Name!).ToArray();
 
         var tags = dto.Tags
             .Where(t => !string.IsNullOrWhiteSpace(t.Name))
-            .Select(t => t.Name!)
-            .Take(20)
-            .ToArray();
+            .Select(t => t.Name!).Take(20).ToArray();
 
         return new StoreGameDetails
         {
@@ -88,18 +100,16 @@ public sealed class EGDataStoreProvider(
             Publisher      = NullIfEmpty(dto.PublisherDisplayName),
             Genres         = genres,
             Tags           = tags,
-            Rating         = null,               // egdata.app не надає рейтинг
+            Rating         = null,
             RatingCount    = null,
             HeaderImageUrl = FindImage(dto, "DieselStoreFrontTall", "OfferImageTall"),
             IconImageUrl   = FindImage(dto, "DieselGameBoxTall", "Thumbnail"),
+            // FIX: ProductSlug з Details API — точніший URL
             StoreUrl       = BuildStoreUrl(dto.ProductSlug ?? externalId)
         };
     }
 
-    // ── Фаза 3 — ціна ────────────────────────────────────────────────────────
-
-    public async Task<StorePriceInfo?> GetPriceAsync(
-        string externalId, CancellationToken ct)
+    public async Task<StorePriceInfo?> GetPriceAsync(string externalId, CancellationToken ct)
     {
         var dto = await client.GetItemDetailsAsync(externalId, ct);
         var total = dto?.Price?.TotalPrice;
@@ -108,12 +118,12 @@ public sealed class EGDataStoreProvider(
         var price    = total.OriginalPrice / 100m;
         var discount = (short)Math.Clamp(total.DiscountPercentage, 0, 100);
         var currency = total.CurrencyCode ?? _opts.Country;
-
-        return new StorePriceInfo(price, discount, currency,
-            BuildStoreUrl(dto!.ProductSlug ?? externalId));
+        return new StorePriceInfo(price, discount, currency, BuildStoreUrl(dto!.ProductSlug ?? externalId));
     }
 
-    // ── Helpers ───────────────────────────────────────────────────────────────
+    /// <summary>Epic: https://store.epicgames.com/en-US/p/{slug}  (fallback на externalId)</summary>
+    public string? BuildExternalUrl(string externalId, string? slug = null)
+        => BuildStoreUrl(slug ?? externalId);
 
     private static string BuildStoreUrl(string slugOrId)
         => $"https://store.epicgames.com/en-US/p/{slugOrId}";
@@ -129,6 +139,5 @@ public sealed class EGDataStoreProvider(
         return dto.KeyImages.FirstOrDefault()?.Url;
     }
 
-    private static string? NullIfEmpty(string? s)
-        => string.IsNullOrWhiteSpace(s) ? null : s;
+    private static string? NullIfEmpty(string? s) => string.IsNullOrWhiteSpace(s) ? null : s;
 }

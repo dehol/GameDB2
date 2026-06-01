@@ -57,21 +57,25 @@ public sealed class EGDataClient : IEGDataClient
                 return null;
 
             var result = JsonSerializer.Deserialize<EGDataListResponseDto>(json, JsonOpts);
-
-            // КРИТИЧНИЙ ФІКС: Видаляємо все, що НЕ є грою з отриманого списку
-            if (result?.Elements != null)
+            if (result != null)
             {
-                int totalBefore = result.Elements.Count;
+                // ФІКС: Перевіряємо, чи сервер взагалі щось прислав (до очищення)
+                result.HasDataFromServer = result.Elements != null && result.Elements.Count > 0;
 
-                result.Elements.RemoveAll(item => 
-                    item.Categories == null || 
-                    !item.Categories.Any(c => c.Path != null && c.Path.Equals("games", StringComparison.OrdinalIgnoreCase)));
-
-                int removedCount = totalBefore - result.Elements.Count;
-                if (removedCount > 0)
+                if (result.Elements != null)
                 {
-                    _logger.LogDebug("EGData page {Page}: відфільтровано {Count} dlc/додатків. Лишилось ігор: {Remaining}", 
-                        page, removedCount, result.Elements.Count);
+                    int totalBefore = result.Elements.Count;
+
+                    result.Elements.RemoveAll(item => 
+                        item.Categories == null || 
+                        !item.Categories.Any(c => c.Path != null && c.Path.Equals("games", StringComparison.OrdinalIgnoreCase)));
+
+                    int removedCount = totalBefore - result.Elements.Count;
+                    if (removedCount > 0)
+                    {
+                        _logger.LogDebug("EGData page {Page}: відфільтровано {Count} dlc. Лишилось ігор: {Remaining}", 
+                            page, removedCount, result.Elements.Count);
+                    }
                 }
             }
 

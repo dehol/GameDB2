@@ -29,127 +29,131 @@ public sealed class StoreImportService(
             return 0;
         }
 
-        var candidates = list
-            .Where(i => provider.IsValidItem(i))
-            .Select(i => i.ExternalId)
-            .Distinct()
-            .ToList();
+        var validItems = list.Where(i => provider.IsValidItem(i)).ToList();
+        var candidates = validItems.Select(i => i.ExternalId).Distinct().ToList();
 
-        List<string> alreadyLinked;
+        // Один запит: перевіряємо лише candidates, а не весь каталог магазину
+        HashSet<string> alreadyLinked;
         using (var scope = scopeFactory.CreateScope())
         {
-            var games = scope.ServiceProvider.GetRequiredService<IGameRepository>();
-            alreadyLinked = [.. await games.GetExistingExternalIdsFromSetAsync(provider.ShopId, candidates, ct)];
+            var repo = scope.ServiceProvider.GetRequiredService<IGameRepository>();
+            alreadyLinked = await repo.GetExistingExternalIdsFromSetAsync(provider.ShopId, candidates, ct);
         }
 
-        var toProcess = list
-            .Where(i => provider.IsValidItem(i) && !alreadyLinked.Contains(i.ExternalId))
-            .ToList();
+        var toProcess = validItems.Where(i => !alreadyLinked.Contains(i.ExternalId)).ToList();
+
+        if (toProcess.Count == 0)
+        {
+            logger.LogInformation("[{Slug}] Basic: нічого нового", provider.Slug);
+            return 0;
+        }
 
         int imported = 0;
         for (int i = 0; i < toProcess.Count; i += _options.BasicImportBatchSize)
         {
             ct.ThrowIfCancellationRequested();
             var batch = toProcess.Skip(i).Take(_options.BasicImportBatchSize).ToList();
-
-            using (var scope = scopeFactory.CreateScope())
+            try
             {
-                var games = scope.ServiceProvider.GetRequiredService<IGameRepository>();
-                await ImportOrLinkBatchAsync(games, batch, provider, ct);
+                using var scope = scopeFactory.CreateScope();
+                var repo = scope.ServiceProvider.GetRequiredService<IGameRepository>();
+                await ImportOrLinkBatchAsync(repo, batch, provider, ct);
                 imported += batch.Count;
+                logger.LogInformation("[{Slug}] Basic: {Done}/{Total}", provider.Slug, imported, toProcess.Count);
             }
-
-            logger.LogInformation("[{Slug}] Basic: {Done}/{Total}",
-                provider.Slug, imported, toProcess.Count);
+            catch (Exception ex)
+            {
+                // FIX: помилка одного батчу не зупиняє весь імпорт
+                logger.LogError(ex, "[{Slug}] Basic: помилка батчу {From}-{To}",
+                    provider.Slug, i + 1, i + batch.Count);
+            }
         }
         return imported;
     }
 
+    /// <summary>
+    /// FIX: Один SaveChanges на весь батч (ImportBatchAsync) замість N окремих.
+    /// FIX: ExternalUrl заповнюється одразу при Basic-імпорті.
+    /// FIX: Відстежує вже пов'язані GameId в межах батчу → не дублює посилання.
+    /// </summary>
     private async Task ImportOrLinkBatchAsync(
-    IGameRepository gamesRepo, 
-    List<StoreGameListItem> batch, 
-    IStoreProvider provider, 
-    CancellationToken ct)
-{
-    var itemsWithNormalized = batch
-        .Select(item => (Item: item, Normalized: GameNameNormalizer.Normalize(item.Name)))
-        .Where(x => !string.IsNullOrEmpty(x.Normalized))
-        .ToList();
-
-    var distinctNormalizedNames = itemsWithNormalized
-        .Select(x => x.Normalized)
-        .Distinct()
-        .ToList();
-
-    // 1. Отримуємо ігри з бази
-    var existingGames = await gamesRepo.GetGamesByNormalizedNamesAsync(distinctNormalizedNames, ct);
-    
-    var existingGamesDict = existingGames
-        .GroupBy(g => g.NormalizedName)
-        .ToDictionary(g => g.Key, g => g.ToList());
-
-    // КРИТИЧНИЙ ФІКС: Хеш-сет для відстеження ігор, які ми ВЖЕ пов'язали з цим магазином У ЦІЙ ПАЧЦІ
-    var linkedGameIdsInBatch = new HashSet<int>();
-
-    var now = DateTime.UtcNow;
-
-    foreach (var pair in itemsWithNormalized)
+        IGameRepository repo,
+        List<StoreGameListItem> batch,
+        IStoreProvider provider,
+        CancellationToken ct)
     {
-        Game? existing = null;
+        var itemsWithNormalized = batch
+            .Select(item => (Item: item, Normalized: GameNameNormalizer.Normalize(item.Name)))
+            .Where(x => !string.IsNullOrEmpty(x.Normalized))
+            .ToList();
 
-        if (existingGamesDict.TryGetValue(pair.Normalized, out var candidates))
+        if (itemsWithNormalized.Count == 0) return;
+
+        var names = itemsWithNormalized.Select(x => x.Normalized).Distinct().ToList();
+        var existingGames = await repo.GetGamesByNormalizedNamesAsync(names, ct);
+        var existingDict = existingGames
+            .GroupBy(g => g.NormalizedName)
+            .ToDictionary(g => g.Key, g => g.ToList());
+
+        var linkedInBatch = new HashSet<int>();
+        var now = DateTime.UtcNow;
+        var newGames = new List<Game>();
+        var newLinks = new List<GameExternalId>();
+
+        foreach (var (item, normalized) in itemsWithNormalized)
         {
-            existing = candidates.FirstOrDefault(g => g.Name.Equals(pair.Item.Name, StringComparison.OrdinalIgnoreCase));
-        }
+            Game? existing = null;
+            if (existingDict.TryGetValue(normalized, out var candidates))
+                existing = candidates.FirstOrDefault(g =>
+                    g.Name.Equals(item.Name, StringComparison.OrdinalIgnoreCase));
 
-        if (existing is not null)
-        {
-            // КРИТИЧНИЙ ФІКС: Перевіряємо строго наявність магазину (БЕЗ ExternalId),
-            // а також дивимось, чи не додавали ми йому лінк у цьому ж циклі мілісекунду назад
-            bool linkExists = existing.ExternalIds.Any(e => e.ShopId == provider.ShopId) 
-                              || linkedGameIdsInBatch.Contains(existing.GameId);
-            
-            if (linkExists) continue;
+            if (existing is not null)
+            {
+                if (existing.ExternalIds.Any(e => e.ShopId == provider.ShopId)
+                    || linkedInBatch.Contains(existing.GameId))
+                    continue;
 
-            await gamesRepo.AddExternalIdAsync(new GameExternalId
-            {
-                GameId = existing.GameId,
-                ShopId = provider.ShopId,
-                ExternalId = pair.Item.ExternalId,
-                CreatedAt = now
-            }, ct);
-
-            // Запам'ятовуємо, що для цієї гри в межах пачки лінк вже створено
-            linkedGameIdsInBatch.Add(existing.GameId);
-        }
-        else
-        {
-            var game = new Game
-            {
-                Name = pair.Item.Name,
-                NormalizedName = pair.Normalized,
-                ImportStatus = GameImportStatus.Basic,
-                CreatedAt = now,
-                UpdatedAt = now
-            };
-            game.ExternalIds.Add(new GameExternalId
-            {
-                ShopId = provider.ShopId,
-                ExternalId = pair.Item.ExternalId,
-                CreatedAt = now
-            });
-
-            await gamesRepo.AddAsync(game, ct);
-            
-            if (!existingGamesDict.TryGetValue(pair.Normalized, out var list))
-            {
-                list = [];
-                existingGamesDict[pair.Normalized] = list;
+                newLinks.Add(new GameExternalId
+                {
+                    GameId      = existing.GameId,
+                    ShopId      = provider.ShopId,
+                    ExternalId  = item.ExternalId,
+                    ExternalUrl = provider.BuildExternalUrl(item.ExternalId, item.Slug),
+                    CreatedAt   = now
+                });
+                linkedInBatch.Add(existing.GameId);
             }
-            list.Add(game);
+            else
+            {
+                var game = new Game
+                {
+                    Name           = item.Name,
+                    NormalizedName = normalized,
+                    ImportStatus   = GameImportStatus.Basic,
+                    CreatedAt      = now,
+                    UpdatedAt      = now
+                };
+                game.ExternalIds.Add(new GameExternalId
+                {
+                    ShopId      = provider.ShopId,
+                    ExternalId  = item.ExternalId,
+                    ExternalUrl = provider.BuildExternalUrl(item.ExternalId, item.Slug),
+                    CreatedAt   = now
+                });
+                newGames.Add(game);
+
+                // Додаємо в словник — наступні items цього ж батчу знайдуть цю гру
+                if (!existingDict.TryGetValue(normalized, out var lst))
+                    existingDict[normalized] = lst = [];
+                lst.Add(game);
+            }
         }
+
+        if (newGames.Count > 0 || newLinks.Count > 0)
+            await repo.ImportBatchAsync(newGames, newLinks, ct);
     }
-}
+
+    // ── Фаза 2: Enrichment ──────────────────────────────────────────────────
 
     public async Task EnrichBatchAsync(
         IStoreProvider provider,
@@ -158,15 +162,15 @@ public sealed class StoreImportService(
         CancellationToken ct)
     {
         using var scope = scopeFactory.CreateScope();
-        var games = scope.ServiceProvider.GetRequiredService<IGameRepository>();
+        var repo = scope.ServiceProvider.GetRequiredService<IGameRepository>();
 
         foreach (var externalId in externalIds)
         {
             if (ct.IsCancellationRequested || !state.IsRunning) break;
             try
             {
-                await EnrichSingleAsync(games, provider, externalId, state.OverwriteExisting, ct);
-                state.Processed++;
+                await EnrichSingleAsync(repo, provider, externalId, state.OverwriteExisting, ct);
+                state.IncrementProcessed();
                 await Task.Delay(provider.DelayBetweenRequestsMs, ct);
             }
             catch (Exception ex)
@@ -177,28 +181,38 @@ public sealed class StoreImportService(
     }
 
     private async Task EnrichSingleAsync(
-        IGameRepository gamesRepo,
-        IStoreProvider provider, 
-        string externalId, 
-        bool overwrite, 
+        IGameRepository repo,
+        IStoreProvider provider,
+        string externalId,
+        bool overwrite,
         CancellationToken ct)
     {
-        var game = await gamesRepo.GetByExternalIdAsync(provider.ShopId, externalId, ct);
+        var game = await repo.GetByExternalIdAsync(provider.ShopId, externalId, ct);
         if (game is null) return;
 
         var details = await provider.GetGameDetailsAsync(externalId, ct);
         if (details is null)
         {
             game.ImportStatus = GameImportStatus.Fail;
-            await gamesRepo.UpdateAsync(game, ct);
+            await repo.UpdateAsync(game, ct);
             return;
         }
 
-        await mapper.ApplyAsync(game, details, gamesRepo, overwrite, ct);
+        await mapper.ApplyAsync(game, details, repo, overwrite, ct);
         game.ImportStatus = GameImportStatus.Full;
-        game.UpdatedAt = DateTime.UtcNow;
-        await gamesRepo.UpdateAsync(game, ct);
+        game.UpdatedAt    = DateTime.UtcNow;
 
+        // FIX: Оновлюємо ExternalUrl під час збагачення.
+        // GOG/Epic: Details API повертає точніший slug ніж список.
+        if (details.StoreUrl is not null)
+        {
+            var extId = game.ExternalIds
+                .FirstOrDefault(e => e.ShopId == provider.ShopId && e.ExternalId == externalId);
+            if (extId is not null)
+                extId.ExternalUrl = details.StoreUrl;
+        }
+
+        await repo.UpdateAsync(game, ct);
         logger.LogInformation("[{Slug}] Збагачено: {Name}", provider.Slug, game.Name);
     }
 
@@ -221,12 +235,12 @@ public sealed class StoreImportService(
         using var scope = scopeFactory.CreateScope();
         var priceManager = scope.ServiceProvider.GetRequiredService<PriceManagerService>();
 
-        foreach (var (game, externalId) in pairs)
+        foreach (var (game, extId) in pairs)
         {
             if (ct.IsCancellationRequested || !state.IsRunning) break;
             try
             {
-                var price = await provider.GetPriceAsync(externalId, ct);
+                var price = await provider.GetPriceAsync(extId, ct);
                 if (price is null) continue;
 
                 await priceManager.ProcessPriceUpdateAsync(
@@ -235,15 +249,15 @@ public sealed class StoreImportService(
                     newPrice:    price.Price,
                     newDiscount: price.Discount,
                     currency:    price.Currency,
-                    externalId:  externalId,
+                    externalId:  extId,
                     downloadUrl: price.StoreUrl,
                     ct:          ct);
 
-                state.Processed++;
+                state.IncrementProcessed();
             }
             catch (Exception ex)
             {
-                logger.LogError(ex, "[{Slug}] Помилка ціни {Id}", provider.Slug, externalId);
+                logger.LogError(ex, "[{Slug}] Помилка ціни {Id}", provider.Slug, extId);
             }
             await Task.Delay(provider.DelayBetweenRequestsMs, ct);
         }

@@ -3,6 +3,7 @@ using GameDB.Application.DTOs.Store;
 using GameDB.Application.Interfaces;
 using GameDB.Application.Options;
 using GameDB.Application.Services;
+using GameDB.Application.Services.Import;
 using Microsoft.Extensions.Options;
 
 namespace GameDB.Infrastructure.Providers;
@@ -15,9 +16,9 @@ public sealed class SteamStoreProvider(
 {
     private readonly SteamSpyImportOptions _opts = options.Value;
 
-    public int ShopId => ShopIds.Steam;
-    public string Slug => "steam";
-    public int DelayBetweenRequestsMs => _opts.DelayBetweenRequestsMs;
+    public int    ShopId                 => ShopIds.Steam;
+    public string Slug                   => "steam";
+    public int    DelayBetweenRequestsMs => _opts.DelayBetweenRequestsMs;
 
     public async Task<IReadOnlyCollection<StoreGameListItem>> GetGameListAsync(CancellationToken ct)
     {
@@ -77,13 +78,14 @@ public sealed class SteamStoreProvider(
         if (!int.TryParse(externalId, out var appId)) return null;
         var dto = await spyClient.GetAppDetailsAsync(appId, ct);
         if (dto is null) return null;
-
         if (!TryParsePrice(dto.InitialPrice ?? dto.Price, out var price)) return null;
-
         short.TryParse(dto.Discount, out var discount);
-
         return new StorePriceInfo(price, discount, "USD", BuildStoreUrl(appId));
     }
+
+    /// <summary>Steam: будує URL по числовому AppId. Slug ігнорується.</summary>
+    public string? BuildExternalUrl(string externalId, string? slug = null)
+        => int.TryParse(externalId, out var appId) ? BuildStoreUrl(appId) : null;
 
     public static string BuildHeaderImageUrl(int appId)
         => $"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{appId}/header.jpg";
@@ -93,8 +95,7 @@ public sealed class SteamStoreProvider(
         => $"https://store.steampowered.com/app/{appId}/";
 
     private static string? NoneToNull(string? s)
-        => string.IsNullOrWhiteSpace(s) || s.Equals("none", StringComparison.OrdinalIgnoreCase)
-            ? null : s;
+        => string.IsNullOrWhiteSpace(s) || s.Equals("none", StringComparison.OrdinalIgnoreCase) ? null : s;
 
     private static bool TryParsePrice(string? priceCents, out decimal price)
     {

@@ -11,20 +11,19 @@ public interface IGameRepository
     Task<int>        GetTotalGamesCountAsync(CancellationToken ct = default);
     Task<List<Game>> GetGamesBatchAsync(int skip, int take, CancellationToken ct = default);
 
-    /// <summary>Повертає ігри, у яких LastSyncedAt IS NULL або менше за <paramref name="since"/>.</summary>
     Task<int>        GetGamesNotSyncedSinceCountAsync(DateTime since, CancellationToken ct = default);
     Task<List<Game>> GetGamesNotSyncedSinceBatchAsync(DateTime since, int skip, int take, CancellationToken ct = default);
 
     // ── Запити для імпорту ───────────────────────────────────────────────────
-
-    /// <summary>Повертає всі ExternalId для вказаного магазину (для дедублікації при імпорті).</summary>
     Task<HashSet<string>> GetExistingExternalIdsAsync(int shopId, CancellationToken ct = default);
 
-    /// <summary>ExternalId ігор з вказаним статусом імпорту (наприклад Basic — не збагачені).</summary>
+    /// <summary>Повертає лише ті ExternalId зі списку candidates, які вже є в БД.</summary>
+    Task<HashSet<string>> GetExistingExternalIdsFromSetAsync(
+        int shopId, IReadOnlyCollection<string> candidates, CancellationToken ct = default);
+
     Task<List<string>> GetExternalIdsByStatusAsync(
         int shopId, GameImportStatus status, int count, CancellationToken ct = default);
 
-    /// <summary>Сторінка ExternalId для overwrite-збагачення.</summary>
     Task<List<string>> GetExternalIdsBatchAsync(
         int shopId, int skip, int take, CancellationToken ct = default);
 
@@ -33,6 +32,15 @@ public interface IGameRepository
     Task BulkAddAsync(IReadOnlyCollection<Game> games, CancellationToken ct = default);
     Task UpdateAsync(Game game, CancellationToken ct = default);
     Task DeleteAsync(int gameId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Атомарно зберігає нові ігри та нові ExternalId одним SaveChanges.
+    /// Один round-trip замість N окремих AddAsync.
+    /// </summary>
+    Task ImportBatchAsync(
+        IReadOnlyCollection<Game> newGames,
+        IReadOnlyCollection<GameExternalId> newLinks,
+        CancellationToken ct = default);
 
     // ── Lookup ───────────────────────────────────────────────────────────────
     Task<Developer> GetOrCreateDeveloperAsync(string name, CancellationToken ct = default);
@@ -43,5 +51,4 @@ public interface IGameRepository
     Task<Game?> FindByNormalizedNameAsync(string normalizedName, CancellationToken ct = default);
     Task<List<Game>> GetGamesByNormalizedNamesAsync(IEnumerable<string> names, CancellationToken ct);
     Task AddExternalIdAsync(GameExternalId externalId, CancellationToken ct = default);
-    Task<HashSet<string>> GetExistingExternalIdsFromSetAsync(int shopId, IReadOnlyCollection<string> candidates, CancellationToken ct = default);
 }

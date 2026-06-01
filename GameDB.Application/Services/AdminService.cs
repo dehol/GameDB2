@@ -6,7 +6,6 @@ using System.Threading.Tasks;
 using GameDB.Application.DTOs;
 using GameDB.Application.Interfaces;
 using GameDB.Application.Services.Import;
-using GameDB.Domain.Enums;
 using Microsoft.Extensions.Logging;
 
 namespace GameDB.Application.Services;
@@ -28,18 +27,17 @@ public sealed class AdminService : IAdminService
         PriceSyncOperationState priceState,
         ILogger<AdminService> logger)
     {
-        _adminRepo = adminRepo;
-        _importService = importService;
-        _providers = providers.ToList();
+        _adminRepo       = adminRepo;
+        _importService   = importService;
+        _providers       = providers.ToList();
         _enrichmentState = enrichmentState;
-        _priceState = priceState;
-        _logger = logger;
+        _priceState      = priceState;
+        _logger          = logger;
     }
 
     public async Task<AdminDashboardDto> GetDashboardAsync(CancellationToken ct = default)
     {
         var stats = await _adminRepo.GetStatsAsync(ct);
-
         return new AdminDashboardDto(
             stats,
             ToStatus(_enrichmentState.IsRunning, "enrichment",
@@ -54,40 +52,56 @@ public sealed class AdminService : IAdminService
     }
 
     public Task<AdminGameListDto> GetGamesAsync(
-        AdminGameCoverageFilter filter,
-        int page,
-        int pageSize,
-        string? search = null,
-        CancellationToken ct = default)
+        AdminGameCoverageFilter filter, int page, int pageSize,
+        string? search = null, CancellationToken ct = default)
         => _adminRepo.GetGamesAsync(filter, page, pageSize, search, ct);
 
+    /// <summary>
+    /// FIX: Паралельний запуск всіх провайдерів через Task.WhenAll.
+    /// Помилка одного не скасовує інші — кожен ізольований у RunSafeAsync.
+    /// </summary>
     public async Task<int> ImportBasicGamesAsync(
         string? providerSlug = null, CancellationToken ct = default)
     {
         var providers = ResolveProviders(providerSlug);
-        int imported = 0;
-        foreach (var provider in providers)
+
+        if (providers.Count == 1)
+            return await _importService.ImportBasicAsync(providers[0], ct);
+
+        var results = await Task.WhenAll(providers.Select(p => RunSafeAsync(p, ct)));
+        return results.Sum();
+    }
+
+    private async Task<int> RunSafeAsync(IStoreProvider provider, CancellationToken ct)
+    {
+        try
         {
-            imported += await _importService.ImportBasicAsync(provider, ct);
+            var count = await _importService.ImportBasicAsync(provider, ct);
+            _logger.LogInformation("[{Slug}] Basic import завершено: {Count} ігор", provider.Slug, count);
+            return count;
         }
-        return imported;
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[{Slug}] Basic import завершився з помилкою", provider.Slug);
+            return 0;
+        }
     }
 
     public void StartEnrichmentImport(bool overwriteExisting = false)
     {
         if (_enrichmentState.IsRunning) return;
-        _enrichmentState.IsRunning        = true;
+        _enrichmentState.IsRunning         = true;
         _enrichmentState.OverwriteExisting = overwriteExisting;
-        _enrichmentState.OverwriteSkip    = 0;
-        _enrichmentState.StartedAt        = DateTime.UtcNow;
-        _enrichmentState.FinishedAt       = null;
-        _enrichmentState.LastMessage      = "Збагачення запущено.";
-        _enrichmentState.LastError        = null;
+        _enrichmentState.OverwriteSkip     = 0;
+        _enrichmentState.StartedAt         = DateTime.UtcNow;
+        _enrichmentState.FinishedAt        = null;
+        _enrichmentState.LastMessage       = "Збагачення запущено.";
+        _enrichmentState.LastError         = null;
     }
 
     public void StopEnrichmentImport()
     {
-        _enrichmentState.IsRunning = false;
+        _enrichmentState.IsRunning   = false;
         _enrichmentState.LastMessage = "Зупинено вручну.";
     }
 
@@ -97,7 +111,6 @@ public sealed class AdminService : IAdminService
         _priceState.Cts?.Cancel();
         _priceState.Cts         = new CancellationTokenSource();
         _priceState.IsRunning   = true;
-        _priceState.OverwriteExisting = false;
         _priceState.StartedAt   = DateTime.UtcNow;
         _priceState.FinishedAt  = null;
         _priceState.LastMessage = "Синхронізацію цін запущено.";
@@ -108,29 +121,23 @@ public sealed class AdminService : IAdminService
     public void StopPriceSync()
     {
         _priceState.Cts?.Cancel();
-        _priceState.IsRunning = false;
+        _priceState.IsRunning   = false;
         _priceState.LastMessage = "Зупинка…";
     }
 
-    private IReadOnlyList<IStoreProvider> ResolveProviders(string? providerSlug)
+    private IReadOnlyList<IStoreProvider> ResolveProviders(string? slug)
     {
-        if (string.IsNullOrWhiteSpace(providerSlug)) return _providers;
-        var provider = _providers.FirstOrDefault(p =>
-            string.Equals(p.Slug, providerSlug, StringComparison.OrdinalIgnoreCase));
-        if (provider is null)
-            throw new ArgumentException($"Невідомий провайдер імпорту: {providerSlug}", nameof(providerSlug));
-        return new[] { provider };
+        if (string.IsNullOrWhiteSpace(slug)) return _providers;
+        var p = _providers.FirstOrDefault(x =>
+            string.Equals(x.Slug, slug, StringComparison.OrdinalIgnoreCase));
+        if (p is null)
+            throw new ArgumentException($"Невідомий провайдер: {slug}", nameof(slug));
+        return [p];
     }
 
     private static ImportJobStatusDto ToStatus(
-        bool isRunning,
-        string source,
-        DateTime? started,
-        DateTime? finished,
-        int lastBatch,
-        string? message,
-        string? error,
-        int? processed = null,
-        int? total = null)
+        bool isRunning, string source, DateTime? started, DateTime? finished,
+        int lastBatch, string? message, string? error,
+        int? processed = null, int? total = null)
         => new(isRunning, source, started, finished, lastBatch, message, error, processed, total);
 }

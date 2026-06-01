@@ -7,7 +7,7 @@ namespace GameDB.Infrastructure.Data.Repositories;
 
 public sealed class GameRepository(AppDbContext db) : IGameRepository
 {
-    // ── Базові CRUD ──────────────────────────────────────────────────────────
+    // ── CRUD ─────────────────────────────────────────────────────────────────
 
     public Task<Game?> GetByIdAsync(int gameId, CancellationToken ct = default)
         => db.Games.AsNoTracking().FirstOrDefaultAsync(g => g.GameId == gameId, ct);
@@ -31,20 +31,12 @@ public sealed class GameRepository(AppDbContext db) : IGameRepository
             .Skip(skip).Take(take)
             .ToListAsync(ct);
 
-    // ── Not-synced-since queries ─────────────────────────────────────────────
+    // ── Not-synced-since ─────────────────────────────────────────────────────
 
-    /// <summary>
-    /// Ігри, у яких немає жодного GameOffer з LastSyncedAt >= <paramref name="since"/>.
-    /// Тобто: або взагалі немає ціни, або вона синхронізована до вказаної дати.
-    /// </summary>
     private IQueryable<Game> QueryNotSyncedSince(DateTime since)
     {
-        // Npgsql вимагає Kind=Utc для timestamptz.
-        // Дата з UI приходить як Unspecified (тільки дата, без часу) — трактуємо як початок дня UTC.
         var sinceUtc = since.Kind == DateTimeKind.Utc
-            ? since
-            : DateTime.SpecifyKind(since, DateTimeKind.Utc);
-
+            ? since : DateTime.SpecifyKind(since, DateTimeKind.Utc);
         return db.Games.AsNoTracking()
             .Where(g => !g.GameOffers.Any(o => o.LastSyncedAt != null && o.LastSyncedAt >= sinceUtc));
     }
@@ -60,39 +52,40 @@ public sealed class GameRepository(AppDbContext db) : IGameRepository
             .Skip(skip).Take(take)
             .ToListAsync(ct);
 
-    // ── Запити для імпорту ───────────────────────────────────────────────────
+    // ── Import queries ────────────────────────────────────────────────────────
 
     public async Task<HashSet<string>> GetExistingExternalIdsAsync(int shopId, CancellationToken ct = default)
     {
         var ids = await db.Set<GameExternalId>()
-            .Where(e => e.ShopId == shopId)
-            .Select(e => e.ExternalId)
-            .ToListAsync(ct);
+            .Where(e => e.ShopId == shopId).Select(e => e.ExternalId).ToListAsync(ct);
         return [..ids];
     }
 
-    public async Task<List<string>> GetExternalIdsByStatusAsync(
-        int shopId, GameImportStatus status, int count, CancellationToken ct = default)
+    public async Task<HashSet<string>> GetExistingExternalIdsFromSetAsync(
+        int shopId, IReadOnlyCollection<string> candidates, CancellationToken ct = default)
     {
-        return await db.Set<GameExternalId>()
+        var ids = await db.Set<GameExternalId>()
+            .Where(e => e.ShopId == shopId && candidates.Contains(e.ExternalId))
+            .Select(e => e.ExternalId).ToListAsync(ct);
+        return [..ids];
+    }
+
+    public Task<List<string>> GetExternalIdsByStatusAsync(
+        int shopId, GameImportStatus status, int count, CancellationToken ct = default)
+        => db.Set<GameExternalId>()
             .Include(e => e.Game)
             .Where(e => e.ShopId == shopId && e.Game.ImportStatus == status)
-            .OrderBy(e => e.GameId)
-            .Take(count)
-            .Select(e => e.ExternalId)
-            .ToListAsync(ct);
-    }
+            .OrderBy(e => e.GameId).Take(count)
+            .Select(e => e.ExternalId).ToListAsync(ct);
 
     public Task<List<string>> GetExternalIdsBatchAsync(
         int shopId, int skip, int take, CancellationToken ct = default)
         => db.Set<GameExternalId>()
             .Where(e => e.ShopId == shopId)
-            .OrderBy(e => e.GameId)
-            .Skip(skip).Take(take)
-            .Select(e => e.ExternalId)
-            .ToListAsync(ct);
+            .OrderBy(e => e.GameId).Skip(skip).Take(take)
+            .Select(e => e.ExternalId).ToListAsync(ct);
 
-    // ── Запис ────────────────────────────────────────────────────────────────
+    // ── Write ─────────────────────────────────────────────────────────────────
 
     public async Task AddAsync(Game game, CancellationToken ct = default)
     {
@@ -115,7 +108,21 @@ public sealed class GameRepository(AppDbContext db) : IGameRepository
     public async Task DeleteAsync(int gameId, CancellationToken ct = default)
         => await db.Games.Where(g => g.GameId == gameId).ExecuteDeleteAsync(ct);
 
-    // ── Lookup ───────────────────────────────────────────────────────────────
+    /// <summary>
+    /// Один SaveChanges на весь батч — суттєво знижує кількість round-trips до БД.
+    /// </summary>
+    public async Task ImportBatchAsync(
+        IReadOnlyCollection<Game> newGames,
+        IReadOnlyCollection<GameExternalId> newLinks,
+        CancellationToken ct = default)
+    {
+        if (newGames.Count > 0) db.Games.AddRange(newGames);
+        if (newLinks.Count > 0) db.Set<GameExternalId>().AddRange(newLinks);
+        if (newGames.Count > 0 || newLinks.Count > 0)
+            await db.SaveChangesAsync(ct);
+    }
+
+    // ── Lookup ────────────────────────────────────────────────────────────────
 
     public async Task<Developer> GetOrCreateDeveloperAsync(string name, CancellationToken ct = default)
     {
@@ -146,30 +153,16 @@ public sealed class GameRepository(AppDbContext db) : IGameRepository
     }
 
     public Task<Game?> FindByNormalizedNameAsync(string normalizedName, CancellationToken ct = default)
-        => db.Games
-            .Include(g => g.ExternalIds)
+        => db.Games.Include(g => g.ExternalIds)
             .FirstOrDefaultAsync(g => g.NormalizedName == normalizedName, ct);
 
     public async Task<List<Game>> GetGamesByNormalizedNamesAsync(IEnumerable<string> names, CancellationToken ct)
-    {
-        return await db.Games
-            .Include(g => g.ExternalIds) // Якщо потрібні для лінкування
-            .Where(g => names.Contains(g.NormalizedName))
-            .ToListAsync(ct);
-    }
+        => await db.Games.Include(g => g.ExternalIds)
+            .Where(g => names.Contains(g.NormalizedName)).ToListAsync(ct);
+
     public async Task AddExternalIdAsync(GameExternalId externalId, CancellationToken ct = default)
     {
         db.Set<GameExternalId>().Add(externalId);
         await db.SaveChangesAsync(ct);
-    }
-
-    public async Task<HashSet<string>> GetExistingExternalIdsFromSetAsync(
-        int shopId, IReadOnlyCollection<string> candidates, CancellationToken ct = default)
-    {
-        var ids = await db.Set<GameExternalId>()
-            .Where(e => e.ShopId == shopId && candidates.Contains(e.ExternalId))
-            .Select(e => e.ExternalId)
-            .ToListAsync(ct);
-        return [..ids];
     }
 }

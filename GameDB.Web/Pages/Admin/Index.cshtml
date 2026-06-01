@@ -65,20 +65,26 @@
         <div class="col-lg-4">
             <div class="admin-panel">
                 <h2 class="h6 admin-panel-title">Каталоги магазинів</h2>
-                <p class="small text-muted">Базовий список ігор з вибраного магазину.</p>
-                <div class="input-group input-group-sm mb-2">
-                    <span class="input-group-text">Магазин</span>
-                    <select class="form-select" id="basicImportProvider">
-                        <option value="">Усі магазини</option>
-                        <option value="steam">Steam</option>
-                        <option value="gog">GOG</option>
-                        <option value="epic">Epic Games</option>
-                    </select>
+                <p class="small text-muted mb-3">Базовий список ігор — додає нові, не торкає існуючі.</p>
+                <div class="d-grid gap-2">
+                    <button type="button" class="btn btn-outline-primary btn-sm"
+                            data-import-provider="steam" id="btnImportSteam">
+                        🎮 Import Steam
+                    </button>
+                    <button type="button" class="btn btn-outline-secondary btn-sm"
+                            data-import-provider="gog" id="btnImportGog">
+                        🌌 Import GOG
+                    </button>
+                    <button type="button" class="btn btn-outline-warning btn-sm"
+                            data-import-provider="epic" id="btnImportEgs">
+                        ⚡ Import EGS
+                    </button>
+                    <button type="button" class="btn btn-primary btn-sm"
+                            data-import-provider="" id="btnImportAll">
+                        🚀 Import All (паралельно)
+                    </button>
                 </div>
-                <button type="button" class="btn btn-primary btn-sm w-100 mb-2" id="btnBasicImport">
-                    Імпорт нових ігор (basic)
-                </button>
-                <div id="basicImportResult" class="small text-muted"></div>
+                <div id="basicImportResult" class="small text-muted mt-2"></div>
             </div>
         </div>
 
@@ -155,18 +161,12 @@
                 </select>
             </div>
         </div>
-
         <div class="table-responsive">
             <table class="table table-sm table-hover admin-games-table align-middle mb-0">
                 <thead class="table-light">
                     <tr>
-                        <th>ID</th>
-                        <th>Назва</th>
-                        <th>Steam ID</th>
-                        <th>Статус</th>
-                        <th>Ціна</th>
-                        <th>Синх. цін</th>
-                        <th></th>
+                        <th>ID</th><th>Назва</th><th>Steam ID</th>
+                        <th>Статус</th><th>Ціна</th><th>Синх. цін</th><th></th>
                     </tr>
                 </thead>
                 <tbody id="gamesTableBody">
@@ -174,7 +174,6 @@
                 </tbody>
             </table>
         </div>
-
         <div class="d-flex justify-content-between align-items-center mt-3 flex-wrap gap-2">
             <span class="small text-muted" id="gamesPagerInfo">—</span>
             <div class="btn-group btn-group-sm">
