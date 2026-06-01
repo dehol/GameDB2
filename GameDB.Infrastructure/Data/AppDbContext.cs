@@ -56,6 +56,9 @@ public partial class AppDbContext : DbContext
             entity.HasIndex(e => e.DeveloperId, "IX_Game_DeveloperId");
             entity.HasIndex(e => e.PublisherId,  "IX_Game_PublisherId");
             entity.HasIndex(e => e.ImportStatus,  "IX_Game_ImportStatus");
+            
+            entity.Property(e => e.NormalizedName).HasMaxLength(256).IsRequired();
+            entity.HasIndex(e => e.NormalizedName, "IX_Game_NormalizedName");
 
             entity.Property(e => e.HeaderImage).HasMaxLength(512);
             entity.Property(e => e.IconImage).HasMaxLength(512);

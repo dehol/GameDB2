@@ -144,4 +144,25 @@ public sealed class GameRepository(AppDbContext db) : IGameRepository
             "INSERT INTO \"Tag\" (\"Name\") VALUES ({0}) ON CONFLICT (\"Name\") DO NOTHING", name);
         return await db.Set<Tag>().FirstAsync(t => t.Name == name, ct);
     }
+
+    public Task<Game?> FindByNormalizedNameAsync(string normalizedName, CancellationToken ct = default)
+        => db.Games
+            .Include(g => g.ExternalIds)
+            .FirstOrDefaultAsync(g => g.NormalizedName == normalizedName, ct);
+
+    public async Task AddExternalIdAsync(GameExternalId externalId, CancellationToken ct = default)
+    {
+        db.Set<GameExternalId>().Add(externalId);
+        await db.SaveChangesAsync(ct);
+    }
+
+    public async Task<HashSet<string>> GetExistingExternalIdsFromSetAsync(
+        int shopId, IReadOnlyCollection<string> candidates, CancellationToken ct = default)
+    {
+        var ids = await db.Set<GameExternalId>()
+            .Where(e => e.ShopId == shopId && candidates.Contains(e.ExternalId))
+            .Select(e => e.ExternalId)
+            .ToListAsync(ct);
+        return [..ids];
+    }
 }

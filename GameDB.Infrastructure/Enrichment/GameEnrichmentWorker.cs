@@ -1,79 +1,72 @@
+using System;
+using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
 using GameDB.Application.Interfaces;
-using GameDB.Application.Services;
+using GameDB.Application.Services.Import;
 using GameDB.Domain.Enums;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 
 namespace GameDB.Infrastructure.Enrichment;
 
-public sealed class GameEnrichmentWorker : BackgroundService
+public sealed class GameEnrichmentWorker(
+    IServiceProvider serviceProvider,
+    EnrichmentOperationState state) : BackgroundService
 {
-    private readonly IServiceProvider _serviceProvider;
-    private readonly GameEnrichmentImportState _state;
-
-    public GameEnrichmentWorker(IServiceProvider serviceProvider, GameEnrichmentImportState state)
-    {
-        _serviceProvider = serviceProvider;
-        _state = state;
-    }
-
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         while (!stoppingToken.IsCancellationRequested)
         {
-            if (!_state.IsImporting)
+            if (!state.IsRunning)
             {
-                await Task.Delay(5000, stoppingToken);
+                await Task.Delay(5_000, stoppingToken);
                 continue;
             }
 
             try
             {
-                using var scope    = _serviceProvider.CreateScope();
-                var gamesRepo      = scope.ServiceProvider.GetRequiredService<IGameRepository>();
-                var enrichment     = scope.ServiceProvider.GetRequiredService<GameEnrichmentService>();
+                using var scope      = serviceProvider.CreateScope();
+                var importService    = scope.ServiceProvider.GetRequiredService<StoreImportService>();
+                var gamesRepo        = scope.ServiceProvider.GetRequiredService<IGameRepository>();
+                var providers        = scope.ServiceProvider.GetRequiredService<IEnumerable<IStoreProvider>>();
 
-                while (_state.IsImporting && !stoppingToken.IsCancellationRequested)
+                foreach (var provider in providers)
                 {
-                    List<string> externalIds;
+                    if (!state.IsRunning) break;
+                    state.CurrentProvider = provider.Slug;
+                    state.CurrentPhase    = "enrich";
 
-                    if (_state.OverwriteExisting)
+                    while (state.IsRunning && !stoppingToken.IsCancellationRequested)
                     {
-                        externalIds = await gamesRepo.GetExternalIdsBatchAsync(
-                            SteamSpyImportService.SteamShopId, _state.OverwriteSkip, 200, stoppingToken);
+                        var externalIds = state.OverwriteExisting
+                            ? await gamesRepo.GetExternalIdsBatchAsync(
+                                provider.ShopId, state.OverwriteSkip, 200, stoppingToken)
+                            : await gamesRepo.GetExternalIdsByStatusAsync(
+                                provider.ShopId, GameImportStatus.Basic, 200, stoppingToken);
+
+                        if (externalIds.Count == 0)
+                        {
+                            state.LastMessage = $"[{provider.Slug}] Збагачення завершено.";
+                            break;
+                        }
+
+                        state.BatchSize    = externalIds.Count;
+                        state.LastMessage  = $"[{provider.Slug}] Збагачення: {externalIds.Count} ігор…";
+
+                        await importService.EnrichBatchAsync(provider, externalIds, state, stoppingToken);
+
+                        if (state.OverwriteExisting)
+                            state.OverwriteSkip += externalIds.Count;
                     }
-                    else
-                    {
-                        externalIds = await gamesRepo.GetExternalIdsByStatusAsync(
-                            SteamSpyImportService.SteamShopId, GameImportStatus.Basic, 200, stoppingToken);
-                    }
-
-                    if (externalIds.Count == 0)
-                    {
-                        _state.IsImporting = false;
-                        _state.FinishedAt  = DateTime.UtcNow;
-                        _state.LastMessage = _state.OverwriteExisting
-                            ? "Збагачення завершено."
-                            : "Усі ігри вже збагачені.";
-                        break;
-                    }
-
-                    _state.LastBatchSize = externalIds.Count;
-                    _state.LastMessage   = _state.OverwriteExisting
-                        ? $"Збагачення: {_state.OverwriteSkip + 1}–{_state.OverwriteSkip + externalIds.Count}…"
-                        : $"Збагачення: {externalIds.Count} ігор…";
-
-                    await enrichment.ImportBatchAsync(externalIds, _state, stoppingToken);
-
-                    if (_state.OverwriteExisting)
-                        _state.OverwriteSkip += externalIds.Count;
                 }
+
+                state.MarkFinished("Збагачення завершено для всіх магазинів.");
             }
             catch (Exception ex)
             {
-                _state.LastError = ex.Message;
-                Console.WriteLine($"GameEnrichment worker error: {ex.Message}");
-                await Task.Delay(10000, stoppingToken);
+                state.LastError = ex.Message;
+                await Task.Delay(10_000, stoppingToken);
             }
         }
     }

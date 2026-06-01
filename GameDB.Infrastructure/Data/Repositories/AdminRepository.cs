@@ -66,7 +66,7 @@ public sealed class AdminRepository(AppDbContext db) : IAdminRepository
                 // Шукаємо по GameId або по Steam ExternalId
                 q = q.Where(g => g.GameId == gameId
                     || g.ExternalIds.Any(e =>
-                        e.ShopId == SteamSpyImportService.SteamShopId && e.ExternalId == term));
+                            e.ShopId == 1 && e.ExternalId == term));
             }
             else
             {
@@ -98,7 +98,7 @@ public sealed class AdminRepository(AppDbContext db) : IAdminRepository
                 g.Name,
                 g.ImportStatus,
                 g.ExternalIds
-                    .Where(e => e.ShopId == SteamSpyImportService.SteamShopId)
+                      .Where(e => e.ShopId == 1)
                     .Select(e => e.ExternalId)
                     .FirstOrDefault(),
                 g.GameOffers.Any(),

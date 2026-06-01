@@ -119,20 +119,25 @@ try
 
     // ── Бізнес-сервіси ───────────────────────────────────────────────────────
     builder.Services.AddScoped<PriceManagerService>();
-    builder.Services.AddScoped<SteamSpyPriceSyncService>();
     builder.Services.AddSingleton<SteamGameFilter>();
 
-    builder.Services.AddScoped<SteamSpyImportService>();
-    builder.Services.AddSingleton<SteamSpyGameMapper>();
-    builder.Services.AddScoped<GameEnrichmentService>();
-    //
+    // ── Додано для рефакторингу імпорту ──────────────────────────────────────
+    builder.Services.Configure<GameDB.Application.Options.StoreImportOptions>(
+        builder.Configuration.GetSection("StoreImport"));
+    builder.Services.AddScoped<GameDB.Application.Interfaces.IStoreProvider, GameDB.Infrastructure.Providers.SteamStoreProvider>();
+    builder.Services.AddScoped<GameDB.Application.Services.Import.StoreImportService>();
+    builder.Services.AddScoped<GameDB.Application.Services.Import.StoreGameMapper>();
+    builder.Services.AddSingleton<GameDB.Application.Services.Import.EnrichmentOperationState>();
+    builder.Services.AddSingleton<GameDB.Application.Services.Import.PriceSyncOperationState>();
+    builder.Services.AddHostedService<GameDB.Infrastructure.Workers.PriceSyncWorker>();
+    // ─────────────────────────────────────────────────────────────────────────
+
     builder.Services.AddScoped<ICatalogService, CatalogService>();
     builder.Services.AddScoped<IUserCollectionService, UserCollectionService>();
     builder.Services.AddScoped<IGameAlertRepository, GameAlertRepository>();
     builder.Services.AddScoped<IGameAlertService, GameAlertService>();
     builder.Services.AddScoped<IAdminRepository, AdminRepository>();
     builder.Services.AddScoped<IAdminService, AdminService>();
-    builder.Services.AddSingleton<PriceSyncState>();
     builder.Services.AddSingleton<GameDB.Web.Services.AdminUserService>();
     builder.Services.AddScoped<IClaimsTransformation, GameDB.Web.Services.AdminClaimsTransformation>();
     builder.Services.AddSingleton<GameDB.Web.Services.GameDescriptionSanitizer>();
@@ -143,7 +148,6 @@ try
 
     // ── Background Workers ───────────────────────────────────────────────────
 
-    builder.Services.AddSingleton<GameEnrichmentImportState>();
     builder.Services.AddHostedService<GameDB.Infrastructure.Enrichment.GameEnrichmentWorker>();
     builder.Services.AddHostedService<GameDB.Infrastructure.Services.AlertCheckerHostedService>();
 

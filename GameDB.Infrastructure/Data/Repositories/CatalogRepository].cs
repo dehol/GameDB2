@@ -168,7 +168,7 @@ public sealed class CatalogRepository(AppDbContext db) : ICatalogRepository
         if (game is null) return null;
 
         var steamExtId = game.ExternalIds
-            .FirstOrDefault(e => e.ShopId == SteamSpyImportService.SteamShopId)
+            .FirstOrDefault(e => e.ShopId == 1)
             ?.ExternalId;
 
         var offers = game.GameOffers

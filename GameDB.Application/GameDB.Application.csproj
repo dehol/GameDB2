@@ -21,6 +21,7 @@
     <Folder Include="Options\" />
     <Folder Include="Services\ItadImport\" />
     <Folder Include="Services\SteamImport\" />
+    <Folder Include="Services\SteamSpy\" />
   </ItemGroup>
 
 </Project>

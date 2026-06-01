@@ -7,6 +7,7 @@ public partial class Game
     public int GameId { get; set; }
 
     public string Name { get; set; } = null!;
+    public string NormalizedName { get; set; } = null!;
 
     public DateOnly? ReleaseDate { get; set; }
 

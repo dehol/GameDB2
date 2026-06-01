@@ -39,4 +39,8 @@ public interface IGameRepository
     Task<Publisher> GetOrCreatePublisherAsync(string name, CancellationToken ct = default);
     Task<Genre>     GetOrCreateGenreAsync(string name, CancellationToken ct = default);
     Task<Tag>       GetOrCreateTagAsync(string name, CancellationToken ct = default);
+
+    Task<Game?> FindByNormalizedNameAsync(string normalizedName, CancellationToken ct = default);
+    Task AddExternalIdAsync(GameExternalId externalId, CancellationToken ct = default);
+    Task<HashSet<string>> GetExistingExternalIdsFromSetAsync(int shopId, IReadOnlyCollection<string> candidates, CancellationToken ct = default);
 }

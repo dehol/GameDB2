@@ -11,12 +11,12 @@ namespace GameDB.Web.Controllers;
 [Authorize(Roles = AuthCookieService.AdminRole)]
 public class GamesController : ControllerBase
 {
-    private readonly SteamSpyImportService _steamImportService;
+    
     private readonly IAdminService _admin;
 
-    public GamesController(SteamSpyImportService steamImportService, IAdminService admin)
+    public GamesController(IAdminService admin)
     {
-        _steamImportService = steamImportService;
+        
         _admin = admin;
     }
 
@@ -24,7 +24,7 @@ public class GamesController : ControllerBase
     [ValidateAntiForgeryToken]
     public async Task<IActionResult> ImportBasic()
     {
-        var imported = await _steamImportService.ImportBasicGamesAsync();
+        var imported = await _admin.ImportBasicGamesAsync();
         return Ok(new { imported });
     }
 
