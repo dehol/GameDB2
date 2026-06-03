@@ -118,7 +118,7 @@ public sealed class StoreImportService(
                     GameId      = existing.GameId,
                     ShopId      = provider.ShopId,
                     ExternalId  = item.ExternalId,
-                    ExternalUrl = provider.BuildExternalUrl(item.ExternalId, item.Slug),
+                    ExternalUrl = provider.BuildExternalUrl(item.ExternalId),
                     CreatedAt   = now
                 });
                 linkedInBatch.Add(existing.GameId);
@@ -137,7 +137,7 @@ public sealed class StoreImportService(
                 {
                     ShopId      = provider.ShopId,
                     ExternalId  = item.ExternalId,
-                    ExternalUrl = provider.BuildExternalUrl(item.ExternalId, item.Slug),
+                    ExternalUrl = provider.BuildExternalUrl(item.ExternalId),
                     CreatedAt   = now
                 });
                 newGames.Add(game);

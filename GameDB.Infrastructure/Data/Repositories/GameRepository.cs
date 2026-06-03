@@ -30,6 +30,18 @@ public sealed class GameRepository(AppDbContext db) : IGameRepository
             .OrderBy(g => g.GameId)
             .Skip(skip).Take(take)
             .ToListAsync(ct);
+    public Task<List<Game>> GetGamesBatchFromShopAsync(int skip, int take,int shopId,CancellationToken ct = default)
+        =>  db.Games
+            .AsNoTracking()
+            .Include(g => g.GameOffers)
+            .Include(g => g.ExternalIds)
+                .ThenInclude(e => e.Shop)
+            .Where(g => g.ExternalIds.Any(e => e.ShopId == shopId))
+            .OrderBy(g => g.GameId)
+            .Skip(skip)
+            .Take(take)
+            .ToListAsync(ct);
+        
 
     // ── Not-synced-since ─────────────────────────────────────────────────────
 
@@ -77,6 +89,12 @@ public sealed class GameRepository(AppDbContext db) : IGameRepository
             .Where(e => e.ShopId == shopId && e.Game.ImportStatus == status)
             .OrderBy(e => e.GameId).Take(count)
             .Select(e => e.ExternalId).ToListAsync(ct);
+    public Task<int> GetExternalIdsByStatusAsyncCount(
+        int shopId, GameImportStatus status, CancellationToken ct = default)
+        => db.Set<GameExternalId>()
+            .Include(e => e.Game)
+            .Where(e => e.ShopId == shopId && e.Game.ImportStatus == status)
+            .CountAsync(ct);
 
     public Task<List<string>> GetExternalIdsBatchAsync(
         int shopId, int skip, int take, CancellationToken ct = default)

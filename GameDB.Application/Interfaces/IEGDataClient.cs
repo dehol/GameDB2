@@ -1,7 +1,7 @@
 using System.Threading;
 using System.Threading.Tasks;
 using GameDB.Application.DTOs;
-
+using GameDB.Application.DTOs.Store;
 namespace GameDB.Application.Interfaces;
 
 public interface IEGDataClient
@@ -11,4 +11,5 @@ public interface IEGDataClient
 
     /// <summary>Деталі конкретного офера за ID.</summary>
     Task<EGDataItemDto?> GetItemDetailsAsync(string itemId, CancellationToken ct = default);
+    Task<StorePriceInfo?> GetItemPriceAsync(string itemId, CancellationToken ct = default);
 }

@@ -84,7 +84,7 @@ public sealed class SteamStoreProvider(
     }
 
     /// <summary>Steam: будує URL по числовому AppId. Slug ігнорується.</summary>
-    public string? BuildExternalUrl(string externalId, string? slug = null)
+    public string? BuildExternalUrl(string externalId)
         => int.TryParse(externalId, out var appId) ? BuildStoreUrl(appId) : null;
 
     public static string BuildHeaderImageUrl(int appId)

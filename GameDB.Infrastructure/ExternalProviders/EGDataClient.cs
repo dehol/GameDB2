@@ -1,5 +1,6 @@
 using System.Text.Json;
 using GameDB.Application.DTOs;
+using GameDB.Application.DTOs.Store;
 using GameDB.Application.Interfaces;
 using GameDB.Application.Options;
 using Microsoft.Extensions.Logging;
@@ -66,9 +67,16 @@ public sealed class EGDataClient : IEGDataClient
                 {
                     int totalBefore = result.Elements.Count;
 
-                    result.Elements.RemoveAll(item => 
-                        item.Categories == null || 
-                        !item.Categories.Any(c => c.Path != null && c.Path.Equals("games", StringComparison.OrdinalIgnoreCase)));
+                    result.Elements.RemoveAll(item =>
+                    (item.EntitlementType != "EXECUTABLE" && item.EntitlementType != "GAME") ||
+                    item.Status != "ACTIVE" ||
+                    item.Unsearchable ||
+                    item.Categories == null ||
+                    !item.Categories.Any(c =>
+                        c.Path != null &&
+                        (c.Path == "games" || c.Path.StartsWith("games/"))) ||  // ← sub-categories теж ок
+                    item.ReleaseInfo == null ||
+                    item.ReleaseInfo.Count == 0);                                                    
 
                     int removedCount = totalBefore - result.Elements.Count;
                     if (removedCount > 0)
@@ -113,4 +121,64 @@ public sealed class EGDataClient : IEGDataClient
             return null;
         }
     }
+
+    public async Task<StorePriceInfo?> GetItemPriceAsync(string itemId, CancellationToken ct = default)
+    {
+        try
+        {
+            var offerUrl = $"{BaseUrl}/items/{itemId}/offer";
+
+            var offerResponse = await _http.GetAsync(offerUrl, ct);
+            if (!offerResponse.IsSuccessStatusCode)
+            {
+                _logger.LogWarning("Offer request failed {Id} → {Status}", itemId, offerResponse.StatusCode);
+
+                //return new StorePriceInfo(0, 0, _country, BuildStoreUrl(itemId));
+            }
+
+            var offerJson = await offerResponse.Content.ReadAsStringAsync(ct);
+            if (string.IsNullOrWhiteSpace(offerJson))
+                return null;
+
+            using var doc = JsonDocument.Parse(offerJson);
+
+            var offerId = doc.RootElement
+                .GetProperty("id")
+                .GetString();
+
+            if (string.IsNullOrWhiteSpace(offerId))
+                return null;
+
+            var priceUrl = $"{BaseUrl}/offers/{offerId}/price";
+
+            var priceResponse = await _http.GetAsync(priceUrl, ct);
+            if (!priceResponse.IsSuccessStatusCode)
+            {
+                _logger.LogWarning("Price request failed {OfferId} → {Status}", offerId, priceResponse.StatusCode);
+                return null;
+            }
+
+            var priceJson = await priceResponse.Content.ReadAsStringAsync(ct);
+
+            var priceDoc = JsonDocument.Parse(priceJson);
+
+            var price = priceDoc.RootElement
+                .GetProperty("price");
+
+            var originalPrice = price.GetProperty("originalPrice").GetDecimal() / 100m;
+            var discountPrice = price.GetProperty("discountPrice").GetDecimal() / 100m;
+            decimal discountPercent = 0; 
+            if(originalPrice > 0)
+                discountPercent = Math.Round(1 - (discountPrice / originalPrice), 2);
+
+            return new StorePriceInfo(originalPrice, (short)(discountPercent * 100), _country, BuildStoreUrl(itemId));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "EGData price error for {Id}", itemId);
+            return null;
+        }
+    }
+    private static string BuildStoreUrl(string slugOrId)
+        => $"https://store.epicgames.com/en-US/p/{slugOrId}";
 }

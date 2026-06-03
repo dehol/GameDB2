@@ -1,5 +1,6 @@
 using GameDB.Application.Constants;
 using GameDB.Application.DTOs.Store;
+using GameDB.Application.DTOs;
 using GameDB.Application.Interfaces;
 using GameDB.Application.Options;
 using Microsoft.Extensions.Options;
@@ -25,30 +26,40 @@ public sealed class GogStoreProvider(
     public async Task<IReadOnlyCollection<StoreGameListItem>> GetGameListAsync(CancellationToken ct)
     {
         var result = new List<StoreGameListItem>();
-        int page = 1;
-    
-        while (true)
+        var seenIds = new HashSet<string>();
+
+        // Перша сторінка — дізнаємося реальний totalPages з API
+        var firstDto = await client.GetGamesPageAsync(1, ct);
+        int totalPages = firstDto?.TotalPages ?? 0;
+        if (totalPages == 0) return result;
+        ProcessPage(firstDto, seenIds, result);
+
+        for (int page = 2; page <= totalPages; page++)
         {
             ct.ThrowIfCancellationRequested();
             var dto = await client.GetGamesPageAsync(page, ct);
-            //TotalPage = dto.TotalPages;
-            // FIX: null + порожній список → зупинка
-            if (dto is null || dto.Products.Count == 0) 
-            {
-                page++;
-                continue;
-            }
-            foreach (var p in dto.Products)
-                if (!string.IsNullOrWhiteSpace(p.Title))
-                    // FIX: Slug доступний у списку — зберігаємо для BuildExternalUrl
-                    result.Add(new StoreGameListItem(p.Id.ToString(), p.Title, p.Slug));
-
-            if (page >= TotalPage) break;
-            page++;
-            await Task.Delay(_opts.DelayBetweenRequestsMs, ct);
+            if (dto?.Products != null)
+                ProcessPage(dto, seenIds, result);
+            await Task.Delay(150, ct);
         }
 
         return result;
+    }
+
+    private static void ProcessPage(
+        GogFilteredResponseDto? dto,
+        HashSet<string> seenIds,
+        List<StoreGameListItem> result)
+    {
+        if (dto?.Products == null) return;
+        foreach (var p in dto.Products)
+        {
+            var id = p.Id.ToString();
+            if (string.IsNullOrWhiteSpace(id) || !seenIds.Add(id)) continue;
+            if (!string.IsNullOrWhiteSpace(p.Title))
+                result.Add(new StoreGameListItem(id, p.Title, p.Slug));
+            
+        }
     }
 
     public bool IsValidItem(StoreGameListItem item)
@@ -89,27 +100,20 @@ public sealed class GogStoreProvider(
 
     public async Task<StorePriceInfo?> GetPriceAsync(string externalId, CancellationToken ct)
     {
-        var dto = await client.GetProductDetailsAsync(externalId, ct);
+        var dto = await client.GetItemPriceAsync(externalId, ct);
         if (dto?.Price is null) return null;
 
-        if (dto.Price.IsFree)
-            return new StorePriceInfo(0m, 0, "USD", BuildStoreUrl(dto.Slug ?? externalId));
-
-        if (!decimal.TryParse(dto.Price.Amount,
-                System.Globalization.NumberStyles.Any,
-                System.Globalization.CultureInfo.InvariantCulture, out var price))
-            return null;
-
-        var discount = (short)Math.Clamp(dto.Price.DiscountPercentage, 0, 100);
-        return new StorePriceInfo(price, discount, "USD", BuildStoreUrl(dto.Slug ?? externalId));
+        var price = dto.Price;
+        var discount = dto.Discount;
+        return new StorePriceInfo(price, discount, "USD", BuildStoreUrl(externalId));
     }
 
     /// <summary>GOG: https://www.gog.com/game/{slug}  (fallback на числовий Id)</summary>
-    public string? BuildExternalUrl(string externalId, string? slug = null)
-        => BuildStoreUrl(slug ?? externalId);
+    public string? BuildExternalUrl(string externalId)
+        => BuildStoreUrl(externalId);
 
-    private static string BuildStoreUrl(string slugOrId)
-        => $"https://www.gog.com/game/{slugOrId}";
+    private static string BuildStoreUrl(string Id)
+        => $"https://www.gog.com/game/{Id}";
 
     private static string? NormalizeUrl(string? url)
     {
@@ -118,4 +122,22 @@ public sealed class GogStoreProvider(
     }
 
     private static string? NullIfEmpty(string? s) => string.IsNullOrWhiteSpace(s) ? null : s;
+
+    private static bool ShouldStop(Queue<int> recentPages, double minNewIdRatio)
+{
+    if (recentPages.Count < 10)
+        return false;
+
+    int totalPages = recentPages.Count;
+    int totalNewIds = recentPages.Sum();
+
+    int maxPossible = totalPages * 48;
+
+    double ratio = maxPossible == 0
+        ? 0
+        : (double)totalNewIds / maxPossible;
+
+    // якщо менше 5% нових ID → кінець каталогу
+    return ratio < minNewIdRatio;
+}
 }

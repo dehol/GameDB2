@@ -45,7 +45,6 @@ public sealed class EGDataItemDto
     [JsonPropertyName("publisherDisplayName")]
     public string? PublisherDisplayName { get; init; }
 
-    // НОВЕ: Додаємо мапінг категорій з API Epic Games
     [JsonPropertyName("categories")]
     public List<EGDataCategoryDto> Categories { get; init; } = [];
 
@@ -60,9 +59,47 @@ public sealed class EGDataItemDto
 
     [JsonPropertyName("productSlug")]
     public string? ProductSlug { get; init; }
+
+    [JsonPropertyName("entitlementType")]
+    public string? EntitlementType { get; init; }
+
+    [JsonPropertyName("itemType")]
+    public string? ItemType { get; init; }
+
+    [JsonPropertyName("status")]
+    public string? Status { get; init; }
+
+    [JsonPropertyName("unsearchable")]
+    public bool Unsearchable { get; init; }
+
+    [JsonPropertyName("requiresSecureAccount")]
+    public bool RequiresSecureAccount { get; init; }
+
+    [JsonPropertyName("releaseInfo")]
+    public List<EGDataReleaseInfoDto> ReleaseInfo { get; init; } = [];
+
+    [JsonPropertyName("developer")]
+    public string? Developer { get; init; }
+
+    [JsonPropertyName("developerId")]
+    public string? DeveloperId { get; init; }
+
+    [JsonPropertyName("linkedOffers")]
+    public List<string?> LinkedOffers { get; init; } = [];
 }
 
-// НОВЕ: Клас для десеріалізації категорії
+public sealed class EGDataReleaseInfoDto
+{
+    [JsonPropertyName("id")]
+    public string? Id { get; init; }
+
+    [JsonPropertyName("appId")]
+    public string? AppId { get; init; }
+
+    [JsonPropertyName("platform")]
+    public List<string> Platform { get; init; } = [];
+}
+
 public sealed class EGDataCategoryDto
 {
     [JsonPropertyName("path")]

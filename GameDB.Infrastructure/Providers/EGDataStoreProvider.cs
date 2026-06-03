@@ -111,22 +111,21 @@ public sealed class EGDataStoreProvider(
 
     public async Task<StorePriceInfo?> GetPriceAsync(string externalId, CancellationToken ct)
     {
-        var dto = await client.GetItemDetailsAsync(externalId, ct);
-        var total = dto?.Price?.TotalPrice;
-        if (total is null) return null;
+        var dto = await client.GetItemPriceAsync(externalId, ct);
+        if (dto?.Price is null) return null;
 
-        var price    = total.OriginalPrice / 100m;
-        var discount = (short)Math.Clamp(total.DiscountPercentage, 0, 100);
-        var currency = total.CurrencyCode ?? _opts.Country;
-        return new StorePriceInfo(price, discount, currency, BuildStoreUrl(dto!.ProductSlug ?? externalId));
+        var price    = dto.Price;
+        var discount = dto.Discount;
+        var currency = dto.Currency;
+        return new StorePriceInfo(price, discount, currency, BuildStoreUrl(externalId));
     }
 
     /// <summary>Epic: https://store.epicgames.com/en-US/p/{slug}  (fallback на externalId)</summary>
-    public string? BuildExternalUrl(string externalId, string? slug = null)
-        => BuildStoreUrl(slug ?? externalId);
+    public string? BuildExternalUrl(string externalId)
+        => BuildStoreUrl(externalId);
 
-    private static string BuildStoreUrl(string slugOrId)
-        => $"https://store.epicgames.com/en-US/p/{slugOrId}";
+    private static string BuildStoreUrl(string Id)
+        => $"https://store.epicgames.com/en-US/p/{Id}";
 
     private static string? FindImage(EGDataItemDto dto, params string[] preferredTypes)
     {

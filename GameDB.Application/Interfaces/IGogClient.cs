@@ -1,6 +1,7 @@
 using System.Threading;
 using System.Threading.Tasks;
 using GameDB.Application.DTOs;
+using GameDB.Application.DTOs.Store;
 
 namespace GameDB.Application.Interfaces;
 
@@ -16,4 +17,5 @@ public interface IGogClient
     /// Повна інформація про гру за числовим ID.
     /// </summary>
     Task<GogProductDetailsDto?> GetProductDetailsAsync(string productId, CancellationToken ct = default);
+    Task<StorePriceInfo?> GetItemPriceAsync(string itemId, CancellationToken ct = default);
 }

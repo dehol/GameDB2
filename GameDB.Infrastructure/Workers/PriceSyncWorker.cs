@@ -1,8 +1,4 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
+using GameDB.Domain.Enums;
 using GameDB.Application.Interfaces;
 using GameDB.Application.Services.Import;
 using Microsoft.Extensions.DependencyInjection;
@@ -42,16 +38,19 @@ public sealed class PriceSyncWorker(
                     providers = scope.ServiceProvider
                         .GetRequiredService<IEnumerable<IStoreProvider>>().ToList();
 
-                int total;
+                int total = 0;
                 using (var scope = serviceProvider.CreateScope())
                 {
                     var repo = scope.ServiceProvider.GetRequiredService<IGameRepository>();
-                    total = await repo.GetTotalGamesCountAsync(ct);
+                    foreach(var provider in providers)
+                    {
+                        total += await repo.GetExternalIdsByStatusAsyncCount(provider.ShopId, GameImportStatus.Full);
+                    }
                 }
 
                 // Прогрес: обидва провайдери обробляють однаковий набір ігор
                 state.Processed = 0;
-                state.Total     = total * providers.Count;
+                state.Total     = total;
 
                 await Task.WhenAll(providers.Select(p => SyncProviderAsync(p, total, ct)));
 
@@ -81,7 +80,7 @@ public sealed class PriceSyncWorker(
                 var repo          = scope.ServiceProvider.GetRequiredService<IGameRepository>();
                 var importService = scope.ServiceProvider.GetRequiredService<StoreImportService>();
 
-                var batch = await repo.GetGamesBatchAsync(skip, 100, ct);
+                var batch = await repo.GetGamesBatchFromShopAsync(skip, 100, provider.ShopId, ct);
                 if (batch.Count == 0) break;
 
                 state.LastMessage = $"[{provider.Slug}] Ціни: {skip + 1}–{skip + batch.Count} з {total}";
