@@ -5,6 +5,7 @@ using GameDB.Application.Interfaces;
 using Microsoft.Extensions.Logging;
 using System.Text.Json.Serialization;
 using System.Globalization;
+
 namespace GameDB.Infrastructure.ExternalProviders;
 
 public sealed class GogClient : IGogClient
@@ -27,28 +28,33 @@ public sealed class GogClient : IGogClient
         _logger = logger;
     }
 
-    public async Task<GogFilteredResponseDto?> GetGamesPageAsync(
-        int page, CancellationToken ct = default)
+    private const string CatalogBaseUrl = "https://catalog.gog.com/v1/catalog";
+
+    // Змінено інпути: тепер приймаємо string cursor замість int page
+    public async Task<GogCatalogResponseDto?> GetCatalogPageAsync(string cursor, CancellationToken ct = default)
     {
-        var url = $"{ListBaseUrl}?mediaType=game&page={page}";
+        var url = $"{CatalogBaseUrl}?limit=48&order=asc%3AexternalProductId&productType=game" +
+                  $"&countryCode=US&locale=en-US&currencyCode=USD&searchAfter={cursor}";
         try
         {
             var response = await _http.GetAsync(url, ct);
             if (!response.IsSuccessStatusCode)
             {
-                _logger.LogWarning("GOG list page {Page} → {Status}", page, response.StatusCode);
+                _logger.LogWarning("GOG catalog cursor {Cursor} → {Status}", cursor, response.StatusCode);
                 return null;
             }
 
             var json = await response.Content.ReadAsStringAsync(ct);
             if (string.IsNullOrWhiteSpace(json) || json == "null")
+            {
+                _logger.LogWarning("Json is Null");
                 return null;
-
-            return JsonSerializer.Deserialize<GogFilteredResponseDto>(json, JsonOpts);
+            }
+            return JsonSerializer.Deserialize<GogCatalogResponseDto>(json, JsonOpts);
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "GOG list page {Page} — помилка", page);
+            _logger.LogWarning(ex, "GOG catalog cursor {Cursor} — помилка", cursor);
             return null;
         }
     }
@@ -108,7 +114,6 @@ public sealed class GogClient : IGogClient
             decimal originalPrice = ParseGogPrice(basePriceStr!);
             decimal discountPrice = ParseGogPrice(finalPriceStr!);
 
-
             var discountPercent = originalPrice > 0 ? Math.Round(
                 (originalPrice - discountPrice) / originalPrice, 2
             ) : 0;
@@ -121,8 +126,10 @@ public sealed class GogClient : IGogClient
             return null;
         }
     }
+    
     private static string BuildStoreUrl(string slugOrId)
         => $"https://www.gog.com/game/{slugOrId}";
+        
     static decimal ParseGogPrice(string value)
     {
         var number = value.Split(' ')[0];

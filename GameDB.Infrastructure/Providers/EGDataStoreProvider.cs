@@ -10,9 +10,9 @@ namespace GameDB.Infrastructure.Providers;
 public sealed class EGDataStoreProvider(
     IEGDataClient client,
     IOptions<EGDataImportOptions> options) : IStoreProvider
-{
+{  
     private readonly EGDataImportOptions _opts = options.Value;
-    private const int PageLimit = 1000;
+    private const int PageLimit = 50;
 
     public int    ShopId                 => ShopIds.Epic;
     public string Slug                   => "epic";
@@ -104,8 +104,6 @@ public sealed class EGDataStoreProvider(
             RatingCount    = null,
             HeaderImageUrl = FindImage(dto, "DieselStoreFrontTall", "OfferImageTall"),
             IconImageUrl   = FindImage(dto, "DieselGameBoxTall", "Thumbnail"),
-            // FIX: ProductSlug з Details API — точніший URL
-            StoreUrl       = BuildStoreUrl(dto.ProductSlug ?? externalId)
         };
     }
 

@@ -5,40 +5,16 @@ namespace GameDB.Application.DTOs;
 
 // ── Filtered List (https://www.gog.com/games/ajax/filtered) ──────────────────
 
-public sealed class GogFilteredResponseDto
+public sealed class GogCatalogResponseDto
 {
-    [JsonPropertyName("products")]
-    public List<GogProductListItemDto> Products { get; init; } = [];
-
-    [JsonPropertyName("totalGamesCount")]
-    public int TotalGamesCount { get; init; }
-
-    [JsonPropertyName("totalPages")]
-    public int TotalPages { get; init; }
+    public List<GogCatalogItemDto>   Products { get; set; } = [];
 }
 
-public sealed class GogProductListItemDto
+public sealed class GogCatalogItemDto
 {
-    [JsonPropertyName("id")]
-    public int Id { get; init; }
-
-    [JsonPropertyName("title")]
-    public string? Title { get; init; }
-
-    [JsonPropertyName("slug")]
-    public string? Slug { get; init; }
-
-    [JsonPropertyName("developer")]
-    public string? Developer { get; init; }
-
-    [JsonPropertyName("publisher")]
-    public string? Publisher { get; init; }
-
-    [JsonPropertyName("isGame")]
-    public bool IsGame { get; init; }
-
-    [JsonPropertyName("isAvailableForSale")]
-    public bool IsAvailableForSale { get; init; }
+    public string  Id    { get; set; } = "";
+    public string  Title { get; set; } = "";
+    public string? Slug  { get; set; }
 }
 
 // ── Product Details (https://api.gog.com/products/{id}) ──────────────────────

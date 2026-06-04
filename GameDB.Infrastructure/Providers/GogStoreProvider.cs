@@ -4,61 +4,79 @@ using GameDB.Application.DTOs;
 using GameDB.Application.Interfaces;
 using GameDB.Application.Options;
 using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Logging;
 
 namespace GameDB.Infrastructure.Providers;
 
 public sealed class GogStoreProvider(
     IGogClient client,
-    IOptions<GogImportOptions> options) : IStoreProvider
+    IOptions<GogImportOptions> options,
+    ILogger<GogStoreProvider> logger) : IStoreProvider
 {
     private readonly GogImportOptions _opts = options.Value;
 
     public int    ShopId                 => ShopIds.Gog;
     public string Slug                   => "gog";
     public int    DelayBetweenRequestsMs => _opts.DelayBetweenRequestsMs;
-    private static int _totalPage = 251;
-
-    public static int TotalPage
-    {
-        get => _totalPage;
-        set => _totalPage = Math.Max(_totalPage, value);
-    }
+    
     public async Task<IReadOnlyCollection<StoreGameListItem>> GetGameListAsync(CancellationToken ct)
     {
-        var result = new List<StoreGameListItem>();
+        var result  = new List<StoreGameListItem>();
         var seenIds = new HashSet<string>();
+        
+        // Початковий курсор для GOG API
+        string cursor = "0"; 
 
-        // Перша сторінка — дізнаємося реальний totalPages з API
-        var firstDto = await client.GetGamesPageAsync(1, ct);
-        int totalPages = firstDto?.TotalPages ?? 0;
-        if (totalPages == 0) return result;
-        ProcessPage(firstDto, seenIds, result);
-
-        for (int page = 2; page <= totalPages; page++)
+        while (true)
         {
             ct.ThrowIfCancellationRequested();
-            var dto = await client.GetGamesPageAsync(page, ct);
-            if (dto?.Products != null)
-                ProcessPage(dto, seenIds, result);
-            await Task.Delay(150, ct);
+            logger.LogInformation("Fetching GOG catalog with cursor: {Cursor}", cursor);
+
+            var dto = await client.GetCatalogPageAsync(cursor, ct);
+            
+            // Якщо прийшла порожня відповідь або список продуктів порожній — ми дійшли кінця
+            if (dto?.Products is null || dto.Products.Count == 0)
+            {
+                logger.LogInformation("Reached the end of GOG catalog.");
+                break;
+            }
+
+            ProcessCatalogPage(dto, seenIds, result);
+
+            // Знаходимо останній валідний ID на поточній сторінці, щоб використати як наступний курсор
+            var lastProduct = dto.Products.LastOrDefault(p => !string.IsNullOrWhiteSpace(p.Id));
+            if (lastProduct is null)
+            {
+                break; // Безпечний вихід, якщо раптом у відповіді біда з айдішниками
+            }
+
+            cursor = lastProduct.Id;
+
+            // Оптимізація: якщо сервер повернув менше продуктів ніж ліміт (48), це остання сторінка
+            if (dto.Products.Count < 48)
+            {
+                break;
+            }
+
+            await Task.Delay(_opts.DelayBetweenRequestsMs, ct);
         }
 
         return result;
     }
 
-    private static void ProcessPage(
-        GogFilteredResponseDto? dto,
+    private void ProcessCatalogPage(
+        GogCatalogResponseDto dto,
         HashSet<string> seenIds,
         List<StoreGameListItem> result)
     {
-        if (dto?.Products == null) return;
         foreach (var p in dto.Products)
         {
-            var id = p.Id.ToString();
-            if (string.IsNullOrWhiteSpace(id) || !seenIds.Add(id)) continue;
+            if (string.IsNullOrWhiteSpace(p.Id) || !seenIds.Add(p.Id)) continue;
             if (!string.IsNullOrWhiteSpace(p.Title))
-                result.Add(new StoreGameListItem(id, p.Title, p.Slug));
-            
+            {
+                logger.LogInformation(p.Title);
+                result.Add(new StoreGameListItem(p.Id, p.Title, p.Slug));
+            }
         }
     }
 
@@ -70,7 +88,6 @@ public sealed class GogStoreProvider(
         var dto = await client.GetProductDetailsAsync(externalId, ct);
         if (dto is null || string.IsNullOrWhiteSpace(dto.Title)) return null;
 
-        // GOG rating: шкала 0–50 → нормалізуємо до 0–100
         double? rating = dto.Rating > 0 ? Math.Round(dto.Rating * 2.0, 1) : null;
 
         var genres = dto.Genres
@@ -93,8 +110,6 @@ public sealed class GogStoreProvider(
             RatingCount    = null,
             HeaderImageUrl = NormalizeUrl(dto.Images?.Background),
             IconImageUrl   = NormalizeUrl(dto.Images?.Logo),
-            // FIX: slug із Details API точніший, ніж зі списку
-            StoreUrl       = BuildStoreUrl(dto.Slug ?? externalId)
         };
     }
 
@@ -108,7 +123,6 @@ public sealed class GogStoreProvider(
         return new StorePriceInfo(price, discount, "USD", BuildStoreUrl(externalId));
     }
 
-    /// <summary>GOG: https://www.gog.com/game/{slug}  (fallback на числовий Id)</summary>
     public string? BuildExternalUrl(string externalId)
         => BuildStoreUrl(externalId);
 
@@ -122,22 +136,4 @@ public sealed class GogStoreProvider(
     }
 
     private static string? NullIfEmpty(string? s) => string.IsNullOrWhiteSpace(s) ? null : s;
-
-    private static bool ShouldStop(Queue<int> recentPages, double minNewIdRatio)
-{
-    if (recentPages.Count < 10)
-        return false;
-
-    int totalPages = recentPages.Count;
-    int totalNewIds = recentPages.Sum();
-
-    int maxPossible = totalPages * 48;
-
-    double ratio = maxPossible == 0
-        ? 0
-        : (double)totalNewIds / maxPossible;
-
-    // якщо менше 5% нових ID → кінець каталогу
-    return ratio < minNewIdRatio;
-}
 }

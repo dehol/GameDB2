@@ -11,7 +11,7 @@ public interface IGogClient
     /// Отримує одну сторінку каталогу ігор GOG.
     /// Повертає null якщо сторінка за межами або помилка.
     /// </summary>
-    Task<GogFilteredResponseDto?> GetGamesPageAsync(int page, CancellationToken ct = default);
+    Task<GogCatalogResponseDto?> GetCatalogPageAsync(string cursor, CancellationToken ct = default);
 
     /// <summary>
     /// Повна інформація про гру за числовим ID.

@@ -70,7 +70,6 @@ try
     builder.Services.AddScoped<IUserRepository, UserRepository>();
     builder.Services.AddScoped<IGameOfferRepository, GameOfferRepository>();
     builder.Services.AddScoped<IGameRepository, GameRepository>();
-    builder.Services.AddScoped<ILookupRepository, LookupRepository>();
     builder.Services.AddScoped<ICatalogRepository, CatalogRepository>();
     builder.Services.AddScoped<IUserCollectionRepository, UserCollectionRepository>();
     builder.Services.AddScoped<IGameShopRepository, GameShopRepository>();
