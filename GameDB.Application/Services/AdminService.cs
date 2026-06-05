@@ -15,23 +15,20 @@ public sealed class AdminService : IAdminService
     private readonly IAdminRepository _adminRepo;
     private readonly IBasicImportService _basicImportService;
     private readonly IReadOnlyList<IStoreProvider> _providers;
-    private readonly EnrichmentOperationState _enrichmentState;
-    private readonly PriceSyncOperationState _priceState;
+    private readonly ImportOperationState _importState;
     private readonly ILogger<AdminService> _logger;
 
     public AdminService(
         IAdminRepository adminRepo,
         IBasicImportService basicImportService,
         IEnumerable<IStoreProvider> providers,
-        EnrichmentOperationState enrichmentState,
-        PriceSyncOperationState priceState,
+        ImportOperationState importState,
         ILogger<AdminService> logger)
     {
         _adminRepo       = adminRepo;
         _basicImportService   = basicImportService;
         _providers       = providers.ToList();
-        _enrichmentState = enrichmentState;
-        _priceState      = priceState;
+        _importState = importState;
         _logger          = logger;
     }
 
@@ -40,15 +37,15 @@ public sealed class AdminService : IAdminService
         var stats = await _adminRepo.GetStatsAsync(ct);
         return new AdminDashboardDto(
             stats,
-            ToStatus(_enrichmentState.IsRunning, "enrichment",
-                _enrichmentState.StartedAt, _enrichmentState.FinishedAt,
-                _enrichmentState.BatchSize, _enrichmentState.LastMessage,
-                _enrichmentState.LastError),
-            ToStatus(_priceState.IsRunning, "price_sync",
-                _priceState.StartedAt, _priceState.FinishedAt,
-                _priceState.BatchSize, _priceState.LastMessage,
-                _priceState.LastError,
-                _priceState.Processed, _priceState.Total));
+            ToStatus(_importState.IsRunning, "import",
+                _importState.StartedAt, _importState.FinishedAt,
+                _importState.BatchSize, _importState.LastMessage,
+                _importState.LastError),
+            ToStatus(_importState.IsRunning, "import",
+                _importState.StartedAt, _importState.FinishedAt,
+                _importState.BatchSize, _importState.LastMessage,
+                _importState.LastError,
+                _importState.Processed, _importState.Total));
     }
 
     public Task<AdminGameListDto> GetGamesAsync(
@@ -89,38 +86,38 @@ public sealed class AdminService : IAdminService
 
     public void StartEnrichmentImport(bool overwriteExisting = false)
     {
-        if (!_enrichmentState.TryStart()) return;
-        _enrichmentState.OverwriteExisting = overwriteExisting;
-        _enrichmentState.OverwriteSkip     = 0;
-        _enrichmentState.StartedAt         = DateTime.UtcNow;
-        _enrichmentState.FinishedAt        = null;
-        _enrichmentState.LastMessage       = "Збагачення запущено.";
-        _enrichmentState.LastError         = null;
+        if (!_importState.TryStart()) return;
+        _importState.OverwriteExisting = overwriteExisting;
+        _importState.OverwriteSkip     = 0;
+        _importState.StartedAt         = DateTime.UtcNow;
+        _importState.FinishedAt        = null;
+        _importState.LastMessage       = "Збагачення запущено.";
+        _importState.LastError         = null;
     }
 
     public void StopEnrichmentImport()
     {
-        _enrichmentState.RequestStop();
-        _enrichmentState.LastMessage = "Зупинено вручну.";
+        _importState.RequestStop();
+        _importState.LastMessage = "Зупинено вручну.";
     }
 
     public bool StartPriceSync(int batchSize, DateTime? notSyncedSince = null)
     {
-        if (!_enrichmentState.TryStart()) return false;
-        _priceState.Cts?.Cancel();
-        _priceState.Cts         = new CancellationTokenSource();
-        _priceState.StartedAt   = DateTime.UtcNow;
-        _priceState.FinishedAt  = null;
-        _priceState.LastMessage = "Синхронізацію цін запущено.";
-        _priceState.LastError   = null;
+        if (!_importState.TryStart()) return false;
+        _importState.Cts?.Cancel();
+        _importState.Cts         = new CancellationTokenSource();
+        _importState.StartedAt   = DateTime.UtcNow;
+        _importState.FinishedAt  = null;
+        _importState.LastMessage = "Синхронізацію цін запущено.";
+        _importState.LastError   = null;
         return true;
     }
 
     public void StopPriceSync()
     {
-        _priceState.Cts?.Cancel();
-        _enrichmentState.RequestStop();
-        _priceState.LastMessage = "Зупинка…";
+        _importState.Cts?.Cancel();
+        _importState.RequestStop();
+        _importState.LastMessage = "Зупинка…";
     }
 
     private IReadOnlyList<IStoreProvider> ResolveProviders(string? slug)

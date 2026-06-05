@@ -20,7 +20,7 @@ namespace GameDB.Infrastructure.Enrichment;
 /// </summary>
 public sealed class GameEnrichmentWorker(
     IServiceProvider serviceProvider,
-    EnrichmentOperationState state,
+    ImportOperationState state,
     ILogger<GameEnrichmentWorker> logger) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -37,8 +37,7 @@ public sealed class GameEnrichmentWorker(
             {
                 List<IStoreProvider> providers;
                 using (var scope = serviceProvider.CreateScope())
-                    providers = scope.ServiceProvider
-                        .GetRequiredService<IEnumerable<IStoreProvider>>().ToList();
+                    providers = scope.ServiceProvider.GetRequiredService<IEnumerable<IStoreProvider>>().ToList();
 
                 await Task.WhenAll(providers.Select(p => EnrichProviderAsync(p, stoppingToken)));
 

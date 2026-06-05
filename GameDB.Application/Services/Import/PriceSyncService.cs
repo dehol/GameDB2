@@ -15,7 +15,7 @@ public sealed class PriceSyncService(
     public async Task SyncPricesBatchAsync(
         IStoreProvider            provider,
         IReadOnlyCollection<Game> gameBatch,
-        PriceSyncOperationState   state,
+        ImportOperationState      state,
         CancellationToken         ct = default)
     {
         // Беремо лише ExternalId для потрібного магазину

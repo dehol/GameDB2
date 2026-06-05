@@ -125,8 +125,7 @@ builder.Services.AddScoped<GameDB.Application.Interfaces.IStoreProvider,
     builder.Services.AddScoped<GameDB.Application.Services.Import.BasicImportService>();
     builder.Services.AddScoped<IPriceSyncService, PriceSyncService>();
     builder.Services.AddScoped<StoreGameMapper>();
-    builder.Services.AddSingleton<EnrichmentOperationState>();
-    builder.Services.AddSingleton<PriceSyncOperationState>();
+    builder.Services.AddSingleton<ImportOperationState>();
     builder.Services.AddHostedService<GameEnrichmentWorker>();
     builder.Services.AddHostedService<PriceSyncWorker>();
     builder.Services.AddHostedService<AlertCheckerHostedService>();

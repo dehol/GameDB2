@@ -12,6 +12,6 @@ public interface IPriceSyncService
     Task SyncPricesBatchAsync(
         IStoreProvider          provider,
         IReadOnlyCollection<Game> gameBatch,
-        PriceSyncOperationState state,
+        ImportOperationState state,
         CancellationToken       ct = default);
 }

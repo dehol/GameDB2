@@ -21,12 +21,11 @@ namespace GameDB.Infrastructure.Workers;
 /// </summary>
 public abstract class MultiProviderBackgroundWorker<TState>(
     IServiceProvider serviceProvider,
-    TState           state,
+    ImportOperationState           state,
     ILogger          logger) : BackgroundService
-    where TState : ImportOperationState
 {
     protected IServiceProvider ServiceProvider => serviceProvider;
-    protected TState            State           => state;
+    protected ImportOperationState            State           => state;
     protected ILogger           Logger          => logger;
 
     protected abstract string FinishedMessage  { get; }

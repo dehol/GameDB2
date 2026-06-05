@@ -14,9 +14,9 @@ namespace GameDB.Infrastructure.Workers;
 /// </summary>
 public sealed class GameEnrichmentWorker(
     IServiceProvider         serviceProvider,
-    EnrichmentOperationState state,
+    ImportOperationState state,
     ILogger<GameEnrichmentWorker> logger)
-    : MultiProviderBackgroundWorker<EnrichmentOperationState>(serviceProvider, state, logger)
+    : MultiProviderBackgroundWorker<ImportOperationState>(serviceProvider, state, logger)
 {
     protected override string FinishedMessage  => "Збагачення завершено для всіх магазинів.";
     protected override string CancelledMessage => "Збагачення зупинено.";

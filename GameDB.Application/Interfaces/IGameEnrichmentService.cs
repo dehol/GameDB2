@@ -12,6 +12,6 @@ public interface IGameEnrichmentService
     Task EnrichBatchAsync(
         IStoreProvider        provider,
         List<string>          externalIds,
-        EnrichmentOperationState state,
+        ImportOperationState state,
         CancellationToken     ct = default);
 }

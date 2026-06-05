@@ -23,9 +23,9 @@ namespace GameDB.Infrastructure.Workers;
 /// </summary>
 public sealed class PriceSyncWorker(
     IServiceProvider      serviceProvider,
-    PriceSyncOperationState state,
+    ImportOperationState state,
     ILogger<PriceSyncWorker> logger)
-    : MultiProviderBackgroundWorker<PriceSyncOperationState>(serviceProvider, state, logger)
+    : MultiProviderBackgroundWorker<ImportOperationState>(serviceProvider, state, logger)
 {
     protected override string FinishedMessage  => "Синхронізацію цін завершено.";
     protected override string CancelledMessage => "Синхронізацію зупинено.";

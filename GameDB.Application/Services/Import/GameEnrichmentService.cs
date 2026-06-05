@@ -16,7 +16,7 @@ public sealed class GameEnrichmentService(
     public async Task EnrichBatchAsync(
         IStoreProvider          provider,
         List<string>            externalIds,
-        EnrichmentOperationState state,
+        ImportOperationState state,
         CancellationToken       ct = default)
     {
         foreach (var externalId in externalIds)
