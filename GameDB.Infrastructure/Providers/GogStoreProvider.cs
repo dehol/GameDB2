@@ -18,14 +18,13 @@ public sealed class GogStoreProvider(
     public int    ShopId                 => ShopIds.Gog;
     public string Slug                   => "gog";
     public int    DelayBetweenRequestsMs => _opts.DelayBetweenRequestsMs;
-    
+
     public async Task<IReadOnlyCollection<StoreGameListItem>> GetGameListAsync(CancellationToken ct)
     {
         var result  = new List<StoreGameListItem>();
         var seenIds = new HashSet<string>();
-        
-        // Початковий курсор для GOG API
-        string cursor = "0"; 
+
+        string cursor = "0";
 
         while (true)
         {
@@ -33,8 +32,7 @@ public sealed class GogStoreProvider(
             logger.LogInformation("Fetching GOG catalog with cursor: {Cursor}", cursor);
 
             var dto = await client.GetCatalogPageAsync(cursor, ct);
-            
-            // Якщо прийшла порожня відповідь або список продуктів порожній — ми дійшли кінця
+
             if (dto?.Products is null || dto.Products.Count == 0)
             {
                 logger.LogInformation("Reached the end of GOG catalog.");
@@ -43,20 +41,14 @@ public sealed class GogStoreProvider(
 
             ProcessCatalogPage(dto, seenIds, result);
 
-            // Знаходимо останній валідний ID на поточній сторінці, щоб використати як наступний курсор
             var lastProduct = dto.Products.LastOrDefault(p => !string.IsNullOrWhiteSpace(p.Id));
             if (lastProduct is null)
-            {
-                break; // Безпечний вихід, якщо раптом у відповіді біда з айдішниками
-            }
+                break;
 
             cursor = lastProduct.Id;
 
-            // Оптимізація: якщо сервер повернув менше продуктів ніж ліміт (48), це остання сторінка
             if (dto.Products.Count < 48)
-            {
                 break;
-            }
 
             await Task.Delay(_opts.DelayBetweenRequestsMs, ct);
         }
@@ -75,6 +67,8 @@ public sealed class GogStoreProvider(
             if (!string.IsNullOrWhiteSpace(p.Title))
             {
                 logger.LogInformation(p.Title);
+                // FIX: передаємо p.Slug як третій аргумент — він буде використаний
+                //      в BuildExternalUrl для побудови правильного URL (/game/{slug})
                 result.Add(new StoreGameListItem(p.Id, p.Title, p.Slug));
             }
         }
@@ -98,6 +92,13 @@ public sealed class GogStoreProvider(
             .Where(t => !string.IsNullOrWhiteSpace(t.Name))
             .Select(t => t.Name!).Take(20).ToArray();
 
+        // FIX: GOG details API повертає slug — використовуємо його для побудови
+        //      правильного URL. EnrichSingleAsync запише це значення в ExternalUrl,
+        //      що виправить вже існуючі записи після першого ж запуску збагачення.
+        var storeUrl = NullIfEmpty(dto.Slug) is { } s
+            ? $"https://www.gog.com/game/{s}"
+            : null;
+
         return new StoreGameDetails
         {
             ExternalId     = externalId,
@@ -118,15 +119,13 @@ public sealed class GogStoreProvider(
         var dto = await client.GetItemPriceAsync(externalId, ct);
         if (dto?.Price is null) return null;
 
-        var price = dto.Price;
+        var price    = dto.Price;
         var discount = dto.Discount;
         return new StorePriceInfo(price, discount, "USD");
     }
 
-
-    string IStoreProvider.BuildOfferUrl(string slugOrId)
+    public string BuildOfferUrl(string slugOrId)
         => $"https://www.gog.com/game/{slugOrId}";
-        
 
     private static string? NormalizeUrl(string? url)
     {

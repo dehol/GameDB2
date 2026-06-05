@@ -4,13 +4,21 @@ using GameDB.Domain.Entities;
 
 namespace GameDB.Application.Services.Import;
 
+/// <summary>
+/// Застосовує деталі з магазину до доменної сутності Game.
+///
+/// FIX N+1: GetOrCreateGenreAsync/TagAsync викликались по одному на кожен елемент.
+/// Для гри з 10 жанрами і 20 тегами = 30 окремих SQL запитів.
+/// Тепер: GetOrCreateGenresBulkAsync/GetOrCreateTagsBulkAsync — 1 INSERT + 1 SELECT
+/// для всього списку жанрів/тегів незалежно від їхньої кількості.
+/// </summary>
 public sealed class StoreGameMapper
 {
     public async Task ApplyAsync(
-        Game game,
-        StoreGameDetails details,
-        IGameRepository games,
-        bool overwriteExisting,
+        Game              game,
+        StoreGameDetails  details,
+        IGameRepository   games,
+        bool              overwriteExisting,
         CancellationToken ct = default)
     {
         if (overwriteExisting || string.IsNullOrWhiteSpace(game.Name))
@@ -21,39 +29,52 @@ public sealed class StoreGameMapper
 
         if (overwriteExisting || string.IsNullOrWhiteSpace(game.IconImage))
             game.IconImage = details.IconImageUrl;
-            
-        if (details.Rating.HasValue && (overwriteExisting || game.Rating == null))
+
+        if (details.Rating.HasValue && (overwriteExisting || game.Rating is null))
             game.Rating = details.Rating;
 
-        if (details.Developer is not null && (overwriteExisting || game.DeveloperId == null))
+        // Developer і Publisher: зазвичай 0-1 на гру — single-query OK.
+        if (details.Developer is not null && (overwriteExisting || game.DeveloperId is null))
         {
             var dev = await games.GetOrCreateDeveloperAsync(details.Developer, ct);
             game.DeveloperId = dev.DeveloperId;
         }
 
-        if (details.Publisher is not null && (overwriteExisting || game.PublisherId == null))
+        if (details.Publisher is not null && (overwriteExisting || game.PublisherId is null))
         {
             var pub = await games.GetOrCreatePublisherAsync(details.Publisher, ct);
             game.PublisherId = pub.PublisherId;
         }
 
+        // Genres: bulk upsert замість N одиночних запитів
         if (overwriteExisting || game.Genres.Count == 0)
         {
             game.Genres.Clear();
-            foreach (var g in details.Genres)
+
+            if (details.Genres.Any())
             {
-                var genre = await games.GetOrCreateGenreAsync(g, ct);
-                game.Genres.Add(genre);
+                var genreMap = await games.GetOrCreateGenresBulkAsync(details.Genres, ct);
+                foreach (var name in details.Genres)
+                {
+                    if (genreMap.TryGetValue(name, out var genre))
+                        game.Genres.Add(genre);
+                }
             }
         }
 
+        // Tags: bulk upsert замість N одиночних запитів
         if (overwriteExisting || game.Tags.Count == 0)
         {
             game.Tags.Clear();
-            foreach (var t in details.Tags)
+
+            if (details.Tags.Any())
             {
-                var tag = await games.GetOrCreateTagAsync(t, ct);
-                game.Tags.Add(tag);
+                var tagMap = await games.GetOrCreateTagsBulkAsync(details.Tags, ct);
+                foreach (var name in details.Tags)
+                {
+                    if (tagMap.TryGetValue(name, out var tag))
+                        game.Tags.Add(tag);
+                }
             }
         }
     }

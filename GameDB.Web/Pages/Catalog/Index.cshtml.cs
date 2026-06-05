@@ -14,7 +14,7 @@ public class IndexModel : PageModel
 
     public IndexModel(ICatalogService catalog, IUserCollectionService collections)
     {
-        _catalog = catalog;
+        _catalog     = catalog;
         _collections = collections;
     }
 
@@ -70,7 +70,10 @@ public class IndexModel : PageModel
     private async Task LoadCatalogAsync()
     {
         Query = BuildQuery();
-        Result  = await _catalog.GetCatalogAsync(Query.ToFilterDto());
+        var filter = Query.ToFilterDto();
+
+        // Завантажуємо дані послідовно, щоб уникнути конфліктів паралелізму в DbContext
+        Result  = await _catalog.GetCatalogAsync(filter);
         Sidebar = await _catalog.GetSidebarDataAsync();
 
         IsRegisteredUser = User.IsInRole("User");

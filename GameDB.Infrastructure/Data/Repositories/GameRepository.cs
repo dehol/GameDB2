@@ -5,7 +5,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace GameDB.Infrastructure.Data.Repositories;
 
-public sealed class GameRepository(AppDbContext db) : IGameRepository
+public sealed partial class GameRepository(AppDbContext db) : IGameRepository
 {
     // ── CRUD ─────────────────────────────────────────────────────────────────
 

@@ -13,7 +13,7 @@ namespace GameDB.Application.Services;
 public sealed class AdminService : IAdminService
 {
     private readonly IAdminRepository _adminRepo;
-    private readonly StoreImportService _importService;
+    private readonly IBasicImportService _basicImportService;
     private readonly IReadOnlyList<IStoreProvider> _providers;
     private readonly EnrichmentOperationState _enrichmentState;
     private readonly PriceSyncOperationState _priceState;
@@ -21,14 +21,14 @@ public sealed class AdminService : IAdminService
 
     public AdminService(
         IAdminRepository adminRepo,
-        StoreImportService importService,
+        IBasicImportService basicImportService,
         IEnumerable<IStoreProvider> providers,
         EnrichmentOperationState enrichmentState,
         PriceSyncOperationState priceState,
         ILogger<AdminService> logger)
     {
         _adminRepo       = adminRepo;
-        _importService   = importService;
+        _basicImportService   = basicImportService;
         _providers       = providers.ToList();
         _enrichmentState = enrichmentState;
         _priceState      = priceState;
@@ -66,7 +66,7 @@ public sealed class AdminService : IAdminService
         var providers = ResolveProviders(providerSlug);
 
         if (providers.Count == 1)
-            return await _importService.ImportBasicAsync(providers[0], ct);
+            return await _basicImportService.ImportBasicAsync(providers[0], ct);
 
         var results = await Task.WhenAll(providers.Select(p => RunSafeAsync(p, ct)));
         return results.Sum();
@@ -76,7 +76,7 @@ public sealed class AdminService : IAdminService
     {
         try
         {
-            var count = await _importService.ImportBasicAsync(provider, ct);
+            var count = await _basicImportService.ImportBasicAsync(provider, ct);
             _logger.LogInformation("[{Slug}] Basic import завершено: {Count} ігор", provider.Slug, count);
             return count;
         }
@@ -89,8 +89,7 @@ public sealed class AdminService : IAdminService
 
     public void StartEnrichmentImport(bool overwriteExisting = false)
     {
-        if (_enrichmentState.IsRunning) return;
-        _enrichmentState.IsRunning         = true;
+        if (!_enrichmentState.TryStart()) return;
         _enrichmentState.OverwriteExisting = overwriteExisting;
         _enrichmentState.OverwriteSkip     = 0;
         _enrichmentState.StartedAt         = DateTime.UtcNow;
@@ -101,16 +100,15 @@ public sealed class AdminService : IAdminService
 
     public void StopEnrichmentImport()
     {
-        _enrichmentState.IsRunning   = false;
+        _enrichmentState.RequestStop();
         _enrichmentState.LastMessage = "Зупинено вручну.";
     }
 
     public bool StartPriceSync(int batchSize, DateTime? notSyncedSince = null)
     {
-        if (_priceState.IsRunning) return false;
+        if (!_enrichmentState.TryStart()) return false;
         _priceState.Cts?.Cancel();
         _priceState.Cts         = new CancellationTokenSource();
-        _priceState.IsRunning   = true;
         _priceState.StartedAt   = DateTime.UtcNow;
         _priceState.FinishedAt  = null;
         _priceState.LastMessage = "Синхронізацію цін запущено.";
@@ -121,7 +119,7 @@ public sealed class AdminService : IAdminService
     public void StopPriceSync()
     {
         _priceState.Cts?.Cancel();
-        _priceState.IsRunning   = false;
+        _enrichmentState.RequestStop();
         _priceState.LastMessage = "Зупинка…";
     }
 

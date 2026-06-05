@@ -82,12 +82,11 @@ public sealed class SteamStoreProvider(
         return new StorePriceInfo(price, discount, "USD");
     }
 
-    /// <summary>Steam: будує URL по числовому AppId. Slug ігнорується.</summary>
     public static string BuildHeaderImageUrl(int appId)
         => $"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{appId}/header.jpg";
     public static string BuildIconImageUrl(int appId)
         => $"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{appId}/capsule_184x69.jpg";
-    string IStoreProvider.BuildOfferUrl(string slugOrId)
+    public string BuildOfferUrl(string slugOrId)
         => $"https://store.steampowered.com/app/{slugOrId}/";
 
     private static string? NoneToNull(string? s)

@@ -68,7 +68,7 @@ public sealed class GameEnrichmentWorker(
             {
                 using var scope   = serviceProvider.CreateScope();
                 var repo          = scope.ServiceProvider.GetRequiredService<IGameRepository>();
-                var importService = scope.ServiceProvider.GetRequiredService<StoreImportService>();
+                var enrichmentService = scope.ServiceProvider.GetRequiredService<GameEnrichmentService>();
 
                 var externalIds = state.OverwriteExisting
                     ? await repo.GetExternalIdsBatchAsync(provider.ShopId, overwriteSkip, 200, stoppingToken)
@@ -81,7 +81,7 @@ public sealed class GameEnrichmentWorker(
                 }
 
                 state.LastMessage = $"[{provider.Slug}] Збагачення: {externalIds.Count} ігор…";
-                await importService.EnrichBatchAsync(provider, externalIds, state, stoppingToken);
+                await enrichmentService.EnrichBatchAsync(provider, externalIds, state, stoppingToken);
 
                 if (state.OverwriteExisting)
                     overwriteSkip += externalIds.Count;

@@ -12,17 +12,97 @@ public sealed class CatalogRepository(AppDbContext db) : ICatalogRepository
     // ─── Каталог з фільтрами ─────────────────────────────────────────────────
 
     public async Task<(List<CatalogGameDto> Items, int TotalCount)> GetPagedAsync(
-    CatalogFilterDto f, CancellationToken ct = default)
+        CatalogFilterDto f, CancellationToken ct = default)
     {
-        var query = db.Games
-            .AsNoTracking()
-            .Where(g => g.ImportStatus == GameImportStatus.Full)
+        // Крок 1: Базовий запит (лише фільтри, без Include).
+        // Використовується для CountAsync — чистий SELECT COUNT(*) без JOIN-вибухів.
+        var baseQuery = BuildFilteredQuery(f);
+
+        // Крок 2: Точний підрахунок (без Include → EF не приєднує колекції до COUNT).
+        var totalCount = await baseQuery.CountAsync(ct);
+
+        // Крок 3: Сортування зі СТАБІЛЬНИМ вторинним ключем GameId.
+        // ⚠️ КРИТИЧНО: без ThenBy(GameId) SQL-сервер повертає рядки в довільному
+        // порядку при однаковому основному значенні (Rating=null → 0*0=0 для всіх).
+        // Це спричиняє перекривання сторінок: одні ігри з'являються двічі, інші
+        // не з'являються взагалі — саме тому пагінація "не працювала".
+        IOrderedQueryable<Game> sorted = (f.SortBy, f.SortDesc) switch
+        {
+            (CatalogSortBy.Name,        true)  => baseQuery.OrderByDescending(g => g.Name)
+                                                            .ThenByDescending(g => g.GameId),
+            (CatalogSortBy.Name,        false) => baseQuery.OrderBy(g => g.Name)
+                                                            .ThenBy(g => g.GameId),
+
+            (CatalogSortBy.ReleaseDate, true)  => baseQuery.OrderByDescending(g => g.ReleaseDate)
+                                                            .ThenByDescending(g => g.GameId),
+            (CatalogSortBy.ReleaseDate, false) => baseQuery.OrderBy(g => g.ReleaseDate)
+                                                            .ThenBy(g => g.GameId),
+
+            (CatalogSortBy.Rating,      true)  => baseQuery.OrderByDescending(g => g.Rating ?? 0)
+                                                            .ThenByDescending(g => g.GameId),
+            (CatalogSortBy.Rating,      false) => baseQuery.OrderBy(g => g.Rating ?? 0)
+                                                            .ThenBy(g => g.GameId),
+
+            (CatalogSortBy.Popularity,  true)  => baseQuery.OrderByDescending(g => (g.Rating ?? 0) * (g.RatingCount ?? 0))
+                                                            .ThenByDescending(g => g.GameId),
+            (CatalogSortBy.Popularity,  false) => baseQuery.OrderBy(g => (g.Rating ?? 0) * (g.RatingCount ?? 0))
+                                                            .ThenBy(g => g.GameId),
+
+            (CatalogSortBy.Price,       true)  => baseQuery.OrderByDescending(
+                                                        g => g.GameExternalIds
+                                                               .SelectMany(e => e.GameOffers)
+                                                               .Min(o => (decimal?)o.FinalPrice) ?? 999999m)
+                                                            .ThenByDescending(g => g.GameId),
+            (CatalogSortBy.Price,       false) => baseQuery.OrderBy(
+                                                        g => g.GameExternalIds
+                                                               .SelectMany(e => e.GameOffers)
+                                                               .Min(o => (decimal?)o.FinalPrice) ?? 999999m)
+                                                            .ThenBy(g => g.GameId),
+
+            (CatalogSortBy.Discount,    true)  => baseQuery.OrderByDescending(
+                                                        g => g.GameExternalIds
+                                                               .SelectMany(e => e.GameOffers)
+                                                               .Max(o => (int?)o.CurrentDiscount) ?? 0)
+                                                            .ThenByDescending(g => g.GameId),
+            (CatalogSortBy.Discount,    false) => baseQuery.OrderBy(
+                                                        g => g.GameExternalIds
+                                                               .SelectMany(e => e.GameOffers)
+                                                               .Max(o => (int?)o.CurrentDiscount) ?? 0)
+                                                            .ThenBy(g => g.GameId),
+
+            (CatalogSortBy.UpdatedAt,   true)  => baseQuery.OrderByDescending(g => g.UpdatedAt)
+                                                            .ThenByDescending(g => g.GameId),
+            (CatalogSortBy.UpdatedAt,   false) => baseQuery.OrderBy(g => g.UpdatedAt)
+                                                            .ThenBy(g => g.GameId),
+
+            _                                  => baseQuery.OrderByDescending(g => (g.Rating ?? 0) * (g.RatingCount ?? 0))
+                                                            .ThenByDescending(g => g.GameId),
+        };
+
+        // Крок 4: Пагінація + Include + AsSplitQuery.
+        // AsSplitQuery ставимо тут (не на початку), щоб COUNT вже було виконано.
+        // Skip/Take застосовується до відфільтрованого/відсортованого набору,
+        // а Include завантажує пов'язані дані лише для 24 (PageSize) ігор.
+        var games = await sorted
+            .Skip((f.Page - 1) * f.PageSize)
+            .Take(f.PageSize)
             .Include(g => g.Developer)
             .Include(g => g.Genres)
             .Include(g => g.GameExternalIds).ThenInclude(e => e.GameOffers)
             .Include(g => g.GameExternalIds).ThenInclude(e => e.Shop)
-            .AsSplitQuery() // 🌟 ВИПРАВЛЕНО: Запобігає Cartesian Explosion, розділяючи важкі JOIN на окремі швидкі запити
-            .AsQueryable();
+            .AsSplitQuery()
+            .ToListAsync(ct);
+
+        return (games.Select(MapToCard).ToList(), totalCount);
+    }
+
+    // ─── Фільтри (виділено окремо, щоб повторно використати для COUNT) ────────
+
+    private IQueryable<Game> BuildFilteredQuery(CatalogFilterDto f)
+    {
+        var query = db.Games
+            .AsNoTracking()
+            .Where(g => g.ImportStatus == GameImportStatus.Full);
 
         // ── Пошук по назві ────────────────────────────────────────────────────
         if (!string.IsNullOrWhiteSpace(f.Search))
@@ -31,11 +111,10 @@ public sealed class CatalogRepository(AppDbContext db) : ICatalogRepository
             query = query.Where(g => EF.Functions.ILike(g.Name, $"%{s}%"));
         }
 
-        // ── Жанри ─────────────────────────────────────────────────────────────
+        // ── Жанри / Теги ──────────────────────────────────────────────────────
         if (f.GenreIds.Count > 0)
             query = query.Where(g => g.Genres.Any(genre => f.GenreIds.Contains(genre.GenreId)));
 
-        // ── Теги ──────────────────────────────────────────────────────────────
         if (f.TagIds.Count > 0)
             query = query.Where(g => g.Tags.Any(tag => f.TagIds.Contains(tag.TagId)));
 
@@ -44,15 +123,18 @@ public sealed class CatalogRepository(AppDbContext db) : ICatalogRepository
             query = query.Where(g => g.DeveloperId == f.DeveloperId.Value);
         if (f.PublisherId.HasValue)
             query = query.Where(g => g.PublisherId == f.PublisherId.Value);
-        
+
         if (f.ShopId.HasValue)
-            query = query.Where(g => g.GameExternalIds.Any(e => e.ShopId == f.ShopId.Value && e.GameOffers.Any()));
+            query = query.Where(g =>
+                g.GameExternalIds.Any(e => e.ShopId == f.ShopId.Value && e.GameOffers.Any()));
 
         // ── Роки випуску ──────────────────────────────────────────────────────
         if (f.YearFrom.HasValue)
-            query = query.Where(g => g.ReleaseDate != null && g.ReleaseDate.Value.Year >= f.YearFrom.Value);
+            query = query.Where(g => g.ReleaseDate != null
+                                     && g.ReleaseDate.Value.Year >= f.YearFrom.Value);
         if (f.YearTo.HasValue)
-            query = query.Where(g => g.ReleaseDate != null && g.ReleaseDate.Value.Year <= f.YearTo.Value);
+            query = query.Where(g => g.ReleaseDate != null
+                                     && g.ReleaseDate.Value.Year <= f.YearTo.Value);
 
         // ── Рейтинг ───────────────────────────────────────────────────────────
         if (f.MinRating.HasValue)
@@ -60,47 +142,19 @@ public sealed class CatalogRepository(AppDbContext db) : ICatalogRepository
 
         // ── Ціна / Знижка / Безкоштовні ───────────────────────────────────────
         if (f.MinPrice.HasValue)
-            query = query.Where(g => g.GameExternalIds.Any(e => e.GameOffers.Any(o => o.FinalPrice >= f.MinPrice.Value)));
+            query = query.Where(g =>
+                g.GameExternalIds.Any(e => e.GameOffers.Any(o => o.FinalPrice >= f.MinPrice.Value)));
         if (f.MaxPrice.HasValue)
-            query = query.Where(g => g.GameExternalIds.Any(e => e.GameOffers.Any(o => o.FinalPrice <= f.MaxPrice.Value)));
+            query = query.Where(g =>
+                g.GameExternalIds.Any(e => e.GameOffers.Any(o => o.FinalPrice <= f.MaxPrice.Value)));
         if (f.MinDiscount.HasValue)
-            query = query.Where(g => g.GameExternalIds.Any(e => e.GameOffers.Any(o => o.CurrentDiscount >= f.MinDiscount.Value)));
+            query = query.Where(g =>
+                g.GameExternalIds.Any(e => e.GameOffers.Any(o => o.CurrentDiscount >= f.MinDiscount.Value)));
         if (f.IsFree == true)
-            query = query.Where(g => g.GameExternalIds.Any(e => e.GameOffers.Any(o => o.FinalPrice == 0)));
+            query = query.Where(g =>
+                g.GameExternalIds.Any(e => e.GameOffers.Any(o => o.FinalPrice == 0)));
 
-        // ── TotalCount ────────────────────────────────────────────────────────
-        var totalCount = await query.CountAsync(ct);
-
-        // ── Сортування ────────────────────────────────────────────────────────
-        query = (f.SortBy, f.SortDesc) switch
-        {
-            (CatalogSortBy.Name,        true)  => query.OrderByDescending(g => g.Name),
-            (CatalogSortBy.Name,        false) => query.OrderBy(g => g.Name),
-            (CatalogSortBy.ReleaseDate, true)  => query.OrderByDescending(g => g.ReleaseDate),
-            (CatalogSortBy.ReleaseDate, false) => query.OrderBy(g => g.ReleaseDate),
-            (CatalogSortBy.Rating,      true)  => query.OrderByDescending(g => g.Rating ?? 0),
-            (CatalogSortBy.Rating,      false) => query.OrderBy(g => g.Rating ?? 0),
-            
-            // 🌟 ВИПРАВЛЕНО: Замість Math.Log10 (який ламав SQL-трансляцію) юзаємо чисте множення. Тепер сортування і пагінація працюють на БД!
-            (CatalogSortBy.Popularity,  true)  => query.OrderByDescending(g => (g.Rating ?? 0) * (g.RatingCount ?? 0)),
-            (CatalogSortBy.Popularity,  false) => query.OrderBy(g => (g.Rating ?? 0) * (g.RatingCount ?? 0)),
-            
-            (CatalogSortBy.Price,       true)  => query.OrderByDescending(g => g.GameExternalIds.SelectMany(e => e.GameOffers).Min(o => (decimal?)o.FinalPrice) ?? 999999),
-            (CatalogSortBy.Price,       false) => query.OrderBy(g => g.GameExternalIds.SelectMany(e => e.GameOffers).Min(o => (decimal?)o.FinalPrice) ?? 999999),
-            (CatalogSortBy.Discount,    true)  => query.OrderByDescending(g => g.GameExternalIds.SelectMany(e => e.GameOffers).Max(o => (int?)o.CurrentDiscount) ?? 0),
-            (CatalogSortBy.Discount,    false) => query.OrderBy(g => g.GameExternalIds.SelectMany(e => e.GameOffers).Max(o => (int?)o.CurrentDiscount) ?? 0),
-            (CatalogSortBy.UpdatedAt,   true)  => query.OrderByDescending(g => g.UpdatedAt),
-            (CatalogSortBy.UpdatedAt,   false) => query.OrderBy(g => g.UpdatedAt),
-            _                                  => query.OrderByDescending(g => g.Rating ?? 0),
-        };
-
-        // ── Пагінація ─────────────────────────────────────────────────────────
-        var games = await query
-            .Skip((f.Page - 1) * f.PageSize)
-            .Take(f.PageSize)
-            .ToListAsync(ct);
-
-        return (games.Select(MapToCard).ToList(), totalCount);
+        return query;
     }
 
     // ─── Sidebar ─────────────────────────────────────────────────────────────
@@ -170,11 +224,11 @@ public sealed class CatalogRepository(AppDbContext db) : ICatalogRepository
             .Include(g => g.Tags)
             .Include(g => g.GameExternalIds).ThenInclude(e => e.Shop)
             .Include(g => g.GameExternalIds).ThenInclude(e => e.GameOffers)
+            .AsSplitQuery()
             .FirstOrDefaultAsync(g => g.GameId == gameId, ct);
 
         if (game is null) return null;
 
-        // ВИПРАВЛЕНО: Розгортаємо всі оффери з усіх ExternalId в єдиний плоский список
         var offers = game.GameExternalIds
             .SelectMany(e => e.GameOffers.Select(o => new { External = e, Offer = o }))
             .OrderBy(x => x.Offer.FinalPrice ?? x.Offer.CurrentPrice)
@@ -193,7 +247,7 @@ public sealed class CatalogRepository(AppDbContext db) : ICatalogRepository
         var externalIds = game.GameExternalIds
             .Where(e => e.Shop is not null)
             .ToDictionary(e => e.Shop!.Slug, e => e.ExternalId);
- 
+
         return new GameDetailDto(
             GameId:        game.GameId,
             Name:          game.Name,
@@ -215,14 +269,13 @@ public sealed class CatalogRepository(AppDbContext db) : ICatalogRepository
 
     private static CatalogGameDto MapToCard(Game game)
     {
-        // ВИПРАВЛЕНО: Знаходимо найкращий оффер серед усіх ExternalIds
         var bestPair = game.GameExternalIds
             .SelectMany(e => e.GameOffers.Select(o => new { External = e, Offer = o }))
             .OrderBy(x => x.Offer.FinalPrice ?? x.Offer.CurrentPrice)
             .FirstOrDefault();
 
         var bestExt = bestPair?.External;
-        var best = bestPair?.Offer;
+        var best    = bestPair?.Offer;
 
         return new CatalogGameDto(
             GameId:           game.GameId,

@@ -2,7 +2,7 @@ using GameDB.Application.Interfaces;
 using GameDB.Domain.Entities;
 using Microsoft.Extensions.Logging;
 
-namespace GameDB.Application.Services;
+namespace GameDB.Application.Services.Import;
 
 /// <summary>
 /// Оновлює GameOffer при синхронізації ціни.
@@ -10,33 +10,25 @@ namespace GameDB.Application.Services;
 ///   - ціна змінилась → тригер INSERT новий PriceHistory з RecordedAt = NOW()
 ///   - ціна та сама  → тригер UPDATE LastSyncedAt = NOW() на поточному рядку
 ///
-/// GameOffer тепер пов'язаний з GameExternalId.Id (integer FK) замість GameId + ShopId.
-/// Щоб отримати GameOffer для конкретної гри: Game → ExternalIds[i] → ExternalIds[i].GameOffer.
+/// Moved: Services/ → Services/Import/ (узгодженість з пайплайном імпорту)
+/// Fix: реєструється через IPriceManagerService (раніше — як concrete type, порушення DIP)
 /// </summary>
 public sealed class PriceManagerService(
-    IGameOfferRepository offerRepository,
-    ILogger<PriceManagerService> logger)
+    IGameOfferRepository          offerRepository,
+    ILogger<PriceManagerService>  logger) : IPriceManagerService
 {
-    /// <summary>
-    /// Оновлює або створює GameOffer для вказаного запису GameExternalId.
-    /// </summary>
-    /// <param name="externalIdRecordId">
-    /// GameExternalId.Id — цілочисельний PK запису, що зв'язує гру з магазином.
-    /// Отримується з <c>game.ExternalIds.First(e => e.ShopId == shopId).Id</c>.
-    /// </param>
     public async Task ProcessPriceUpdateAsync(
-        int      externalIdRecordId,
-        decimal  newPrice,
-        short    newDiscount,
-        string   currency,
+        int               externalIdRecordId,
+        decimal           newPrice,
+        short             newDiscount,
+        string            currency,
         CancellationToken ct = default)
     {
         var offer = await offerRepository.GetByExternalIdRecordAsync(externalIdRecordId, ct);
 
         if (offer is null)
         {
-            // Перший раз бачимо цей оффер — створюємо.
-            // Тригер trg_sync_price_history (AFTER INSERT) вставить перший PriceHistory автоматично.
+            // Тригер trg_sync_price_history (AFTER INSERT) вставить перший PriceHistory.
             var newOffer = new GameOffer
             {
                 ExternalId      = externalIdRecordId,
@@ -45,21 +37,15 @@ public sealed class PriceManagerService(
                 Currency        = currency,
                 LastSyncedAt    = DateTime.UtcNow,
             };
-
             await offerRepository.AddGameOfferAsync(newOffer, ct);
 
             logger.LogDebug(
-                "Створено новий GameOffer: ExternalIdRecordId={ExternalIdRecordId}, Price={Price}",
+                "Створено GameOffer: ExternalIdRecordId={Id}, Price={Price}",
                 externalIdRecordId, newPrice);
-
             return;
         }
 
-        // Оновлюємо GameOffer.
-        // Тригер fn_sync_price_history на AFTER UPDATE OF CurrentPrice, CurrentDiscount:
-        //   - якщо ціна змінилась → INSERT в PriceHistory (новий RecordedAt)
-        //   - якщо ціна та сама  → UPDATE LastSyncedAt in-place
-        // LowestPrice / LowestPriceDate підтримує тригер fn_recalculate_lowest_price.
+        // Тригер fn_sync_price_history (AFTER UPDATE) вирішує INSERT vs UPDATE.
         offer.CurrentPrice    = newPrice;
         offer.CurrentDiscount = newDiscount;
         offer.Currency        = currency;

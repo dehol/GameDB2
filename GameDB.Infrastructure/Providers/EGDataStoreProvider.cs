@@ -10,7 +10,7 @@ namespace GameDB.Infrastructure.Providers;
 public sealed class EGDataStoreProvider(
     IEGDataClient client,
     IOptions<EGDataImportOptions> options) : IStoreProvider
-{  
+{
     private readonly EGDataImportOptions _opts = options.Value;
     private const int PageLimit = 50;
 
@@ -23,42 +23,32 @@ public sealed class EGDataStoreProvider(
         var result = new List<StoreGameListItem>();
         int page = 1;
         int consecutiveErrors = 0;
-        const int maxRetries = 3; // Кількість спроб для однієї сторінки у разі помилки мережі
+        const int maxRetries = 3;
 
         while (true)
         {
             ct.ThrowIfCancellationRequested();
-            
+
             var dto = await client.GetItemsPageAsync(page, PageLimit, ct);
-            
-            // 1. ОБРОБКА ПОМИЛОК (Якщо повернувся null через HTTP-збій або таймаут)
+
             if (dto is null)
             {
                 consecutiveErrors++;
                 if (consecutiveErrors >= maxRetries)
                 {
-                    // Замість break — логуємо і пропонуємо пропустити сторінку, щоб не вбивати весь імпорт
                     page++;
                     consecutiveErrors = 0;
                     continue;
                 }
-                
-                // Робимо паузу трохи більшою, щоб сервер "оговтався"
-                await Task.Delay(_opts.DelayBetweenRequestsMs * 2, ct); 
+                await Task.Delay(_opts.DelayBetweenRequestsMs * 2, ct);
                 continue;
             }
 
-            // Якщо запит успішний — скидаємо лічильник помилок
             consecutiveErrors = 0;
 
-            // 2. ПЕРЕВІРКА КІНЦЯ КАТАЛОГУ (Справжній вихід)
-            // Якщо сервер повернув повністю порожній масив — це фінал
-            if (!dto.HasDataFromServer) 
-            {
+            if (!dto.HasDataFromServer)
                 break;
-            }
 
-            // 3. ОБРОБКА ДАНИХ (Якщо сторінка не порожня ПІСЛЯ RemoveAll)
             foreach (var item in dto.Elements)
             {
                 if (!string.IsNullOrWhiteSpace(item.Title))
@@ -66,8 +56,7 @@ public sealed class EGDataStoreProvider(
                     result.Add(new StoreGameListItem(item.Id.ToString(), item.Title, item.ProductSlug));
                 }
             }
-            
-            // Переходимо далі, навіть якщо після RemoveAll на цій сторінці залишилось 0 ігор
+
             page++;
             await Task.Delay(_opts.DelayBetweenRequestsMs, ct);
         }
@@ -118,7 +107,6 @@ public sealed class EGDataStoreProvider(
         return new StorePriceInfo(price, discount, currency);
     }
 
-    /// <summary>Epic: https://store.epicgames.com/en-US/p/{slug}  (fallback на externalId)</summary>
     public string BuildOfferUrl(string slugOrId)
         => $"https://store.epicgames.com/en-US/p/{slugOrId}";
 
@@ -134,6 +122,4 @@ public sealed class EGDataStoreProvider(
     }
 
     private static string? NullIfEmpty(string? s) => string.IsNullOrWhiteSpace(s) ? null : s;
-
-    
 }

@@ -1,102 +1,103 @@
-using GameDB.Domain.Enums;
 using GameDB.Application.Interfaces;
 using GameDB.Application.Services.Import;
+using GameDB.Domain.Enums;
+using GameDB.Domain.Entities;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
 namespace GameDB.Infrastructure.Workers;
 
 /// <summary>
-/// FIX: Провайдери запускаються паралельно через Task.WhenAll.
-/// Кожен провайдер — окремий DbContext scope на кожен батч.
-/// Помилка одного не зупиняє решту.
+/// Воркер фази 3: синхронізація цін.
+/// Кожен провайдер обробляється паралельно (Task.WhenAll).
+///
+/// FIX прогрес-бугу: total передавався загальний (сума по всіх провайдерах),
+/// але кожен SyncProviderAsync ітерував skip від 0 до total.
+/// GetGamesBatchFromShopAsync фільтрує по shopId, тому батчі закінчувались
+/// правильно (break при Empty), але progress-лічильник стану показував
+/// некоректне "N/1500" — кожен провайдер рахував свій "шматок" від нуля
+/// незалежно, а state.Total = 1500 = Steam(1000) + GOG(500).
+///
+/// Тепер: кожен провайдер отримує власний providerTotal,
+/// ітерує від 0 до свого реального ліміту, state.Total = реальна сума.
 /// </summary>
 public sealed class PriceSyncWorker(
-    IServiceProvider serviceProvider,
+    IServiceProvider      serviceProvider,
     PriceSyncOperationState state,
-    ILogger<PriceSyncWorker> logger) : BackgroundService
+    ILogger<PriceSyncWorker> logger)
+    : MultiProviderBackgroundWorker<PriceSyncOperationState>(serviceProvider, state, logger)
 {
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    protected override string FinishedMessage  => "Синхронізацію цін завершено.";
+    protected override string CancelledMessage => "Синхронізацію зупинено.";
+
+    // Зберігаємо per-provider count між PrepareAsync і ProcessProviderAsync
+    private readonly Dictionary<string, int> _providerCounts = new();
+
+    protected override async Task PrepareAsync(List<IStoreProvider> providers, CancellationToken ct)
     {
-        while (!stoppingToken.IsCancellationRequested)
+        _providerCounts.Clear();
+
+        using var scope = ServiceProvider.CreateScope();
+        var repo = scope.ServiceProvider.GetRequiredService<IGameRepository>();
+
+        foreach (var provider in providers)
         {
-            if (!state.IsRunning)
-            {
-                await Task.Delay(5_000, stoppingToken);
-                continue;
-            }
-
-            using var linked = CancellationTokenSource.CreateLinkedTokenSource(
-                stoppingToken, state.Cts?.Token ?? CancellationToken.None);
-            var ct = linked.Token;
-
-            try
-            {
-                List<IStoreProvider> providers;
-                using (var scope = serviceProvider.CreateScope())
-                    providers = scope.ServiceProvider
-                        .GetRequiredService<IEnumerable<IStoreProvider>>().ToList();
-
-                int total = 0;
-                using (var scope = serviceProvider.CreateScope())
-                {
-                    var repo = scope.ServiceProvider.GetRequiredService<IGameRepository>();
-                    foreach(var provider in providers)
-                    {
-                        total += await repo.GetExternalIdsByStatusAsyncCount(provider.ShopId, GameImportStatus.Full);
-                    }
-                }
-
-                // Прогрес: обидва провайдери обробляють однаковий набір ігор
-                state.Processed = 0;
-                state.Total     = total;
-
-                await Task.WhenAll(providers.Select(p => SyncProviderAsync(p, total, ct)));
-
-                state.MarkFinished("Синхронізацію цін завершено.");
-            }
-            catch (OperationCanceledException)
-            {
-                state.MarkFinished("Синхронізацію зупинено.");
-            }
-            catch (Exception ex)
-            {
-                logger.LogError(ex, "PriceSyncWorker: непередбачена помилка");
-                state.LastError = ex.Message;
-                state.MarkFinished("Помилка синхронізації.");
-                await Task.Delay(10_000, stoppingToken);
-            }
+            var count = await repo.GetExternalIdsByStatusAsyncCount(
+                provider.ShopId, GameImportStatus.Full, ct);
+            _providerCounts[provider.Slug] = count;
         }
+
+        // Реальний total = сума кожного провайдера
+        State.ResetProgress(_providerCounts.Values.Sum(), "PriceSync", "Phase3");
+
+        Logger.LogInformation("PriceSync: підготовлено {Total} ігор по {Count} провайдерах",
+            State.Total, providers.Count);
     }
 
-    private async Task SyncProviderAsync(IStoreProvider provider, int total, CancellationToken ct)
+    protected override async Task ProcessProviderAsync(IStoreProvider provider, CancellationToken ct)
     {
+        // Власний ліміт — не загальний total
+        var providerTotal = _providerCounts.GetValueOrDefault(provider.Slug, 0);
+        if (providerTotal == 0)
+        {
+            Logger.LogInformation("[{Slug}] Немає ігор для синхронізації цін", provider.Slug);
+            return;
+        }
+
         try
         {
-            for (int skip = 0; skip < total && state.IsRunning && !ct.IsCancellationRequested; skip += 100)
+            for (int skip = 0; skip < providerTotal && State.IsRunning && !ct.IsCancellationRequested; skip += 100)
             {
-                using var scope   = serviceProvider.CreateScope();
-                var repo          = scope.ServiceProvider.GetRequiredService<IGameRepository>();
-                var importService = scope.ServiceProvider.GetRequiredService<StoreImportService>();
+                List<Game> batch;
 
-                var batch = await repo.GetGamesBatchFromShopAsync(skip, 100, provider.ShopId, ct);
+                using (var scope = ServiceProvider.CreateScope())
+                {
+                    var repo = scope.ServiceProvider.GetRequiredService<IGameRepository>();
+                    batch = await repo.GetGamesBatchFromShopAsync(skip, 100, provider.ShopId, ct);
+                }
+
                 if (batch.Count == 0) break;
 
-                state.LastMessage = $"[{provider.Slug}] Ціни: {skip + 1}–{skip + batch.Count} з {total}";
-                await importService.SyncPricesBatchAsync(provider, batch, state, ct);
+                State.LastMessage = $"[{provider.Slug}] Ціни: {skip + 1}–{skip + batch.Count} з {providerTotal}";
+
+                using (var scope = ServiceProvider.CreateScope())
+                {
+                    var service = scope.ServiceProvider.GetRequiredService<IPriceSyncService>();
+                    await service.SyncPricesBatchAsync(provider, batch, State, ct);
+                }
             }
-            logger.LogInformation("[{Slug}] Синхронізацію цін завершено", provider.Slug);
+
+            Logger.LogInformation("[{Slug}] Синхронізацію цін завершено", provider.Slug);
         }
         catch (OperationCanceledException)
         {
-            logger.LogInformation("[{Slug}] Синхронізацію цін зупинено", provider.Slug);
+            Logger.LogInformation("[{Slug}] Синхронізацію цін зупинено", provider.Slug);
             throw;
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "[{Slug}] Помилка синхронізації цін", provider.Slug);
-            state.LastError = $"[{provider.Slug}] {ex.Message}";
+            Logger.LogError(ex, "[{Slug}] Помилка синхронізації цін", provider.Slug);
+            State.LastError = $"[{provider.Slug}] {ex.Message}";
         }
     }
 }

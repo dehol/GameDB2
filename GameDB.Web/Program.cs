@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authentication;
 using Serilog;
 using GameDB.Application.Services;
+using GameDB.Application.Services.Import;
 using GameDB.Application.Options;
 using GameDB.Application.Interfaces;
 using GameDB.Infrastructure.Data;
@@ -11,7 +12,7 @@ using GameDB.Infrastructure.ExternalProviders;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using GameDB.Infrastructure.Catalog;
 using GameDB.Infrastructure.Http;
-
+using GameDB.Infrastructure.Workers;
 // Bootstrap-логер
 Log.Logger = new LoggerConfiguration()
     .WriteTo.Console()
@@ -25,6 +26,7 @@ try
 
     // ── Razor Pages + Controllers ────────────────────────────────────────────
     builder.Services.AddRazorPages();
+    builder.Services.AddMemoryCache(); // кеш для CatalogSidebar та інших даних
     builder.Services.AddControllers()
         .AddJsonOptions(o =>
             o.JsonSerializerOptions.Converters.Add(
@@ -67,13 +69,13 @@ try
         options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
 
     // ── Репозиторії ──────────────────────────────────────────────────────────
-    builder.Services.AddScoped<IUserRepository, UserRepository>();
-    builder.Services.AddScoped<IGameOfferRepository, GameOfferRepository>();
     builder.Services.AddScoped<IGameRepository, GameRepository>();
-    builder.Services.AddScoped<ICatalogRepository, CatalogRepository>();
-    builder.Services.AddScoped<IUserCollectionRepository, UserCollectionRepository>();
-    builder.Services.AddScoped<IGameShopRepository, GameShopRepository>();
+    builder.Services.AddScoped<IGameOfferRepository, GameOfferRepository>();
     builder.Services.AddScoped<IAlertRepository, AlertRepository>();
+    builder.Services.AddScoped<GameDB.Application.Interfaces.IUserRepository, UserRepository>();
+    builder.Services.AddScoped<GameDB.Application.Interfaces.ICatalogRepository, CatalogRepository>();
+    builder.Services.AddScoped<GameDB.Application.Interfaces.IUserCollectionRepository, UserCollectionRepository>();
+    builder.Services.AddScoped<GameDB.Application.Interfaces.IGameShopRepository, GameShopRepository>();
 
     // ── Сервіси Auth ─────────────────────────────────────────────────────────
     builder.Services.AddScoped<AuthService>();
@@ -81,10 +83,10 @@ try
 
     // ── Зовнішні HTTP-клієнти ────────────────────────────────────────────────
 // ISteamClient залишається без змін (OAuth + UserLibrary, не імпорт)
-builder.Services.AddHttpClient<ISteamClient, SteamClient>();
+    builder.Services.AddHttpClient<ISteamClient, SteamClient>();
 
 // Всі store-клієнти з єдиним Polly pipeline
-builder.Services
+    builder.Services
     .AddHttpClient<GameDB.Application.Interfaces.ISteamSpyClient,
                    GameDB.Infrastructure.ExternalProviders.SteamSpyClient>()
     .AddStoreProviderResiliency("steamspy");
@@ -116,19 +118,23 @@ builder.Services.AddScoped<GameDB.Application.Interfaces.IStoreProvider,
     GameDB.Infrastructure.Providers.EGDataStoreProvider>();
 
 // ── Бізнес-сервіси ───────────────────────────────────────────────────────
-builder.Services.AddScoped<PriceManagerService>();
-builder.Services.AddSingleton<SteamGameFilter>();
-builder.Services.AddScoped<GameDB.Application.Services.Import.StoreImportService>();
-builder.Services.AddScoped<GameDB.Application.Services.Import.StoreGameMapper>();
-builder.Services.AddSingleton<GameDB.Application.Services.Import.EnrichmentOperationState>();
-builder.Services.AddSingleton<GameDB.Application.Services.Import.PriceSyncOperationState>();
-builder.Services.AddHostedService<GameDB.Infrastructure.Workers.PriceSyncWorker>();
+    builder.Services.AddScoped<IPriceManagerService, PriceManagerService>();
+    builder.Services.AddSingleton<SteamGameFilter>();
+    builder.Services.AddScoped<IBasicImportService, BasicImportService>();
+    builder.Services.AddScoped<IGameEnrichmentService, GameEnrichmentService>();
+    builder.Services.AddScoped<GameDB.Application.Services.Import.BasicImportService>();
+    builder.Services.AddScoped<IPriceSyncService, PriceSyncService>();
+    builder.Services.AddScoped<StoreGameMapper>();
+    builder.Services.AddSingleton<EnrichmentOperationState>();
+    builder.Services.AddSingleton<PriceSyncOperationState>();
+    builder.Services.AddHostedService<GameEnrichmentWorker>();
+    builder.Services.AddHostedService<PriceSyncWorker>();
+    builder.Services.AddHostedService<AlertCheckerHostedService>();
 // ─────────────────────────────────────────────────────────────────────────
 
     builder.Services.AddScoped<ICatalogService, CatalogService>();
     builder.Services.AddScoped<IUserCollectionService, UserCollectionService>();
-    builder.Services.AddScoped<IGameAlertRepository, GameAlertRepository>();
-    builder.Services.AddScoped<IGameAlertService, GameAlertService>();
+    builder.Services.AddScoped<INotificationRepository, NotificationRepository>();
     builder.Services.AddScoped<IAdminRepository, AdminRepository>();
     builder.Services.AddScoped<IAdminService, AdminService>();
     builder.Services.AddSingleton<GameDB.Web.Services.AdminUserService>();
@@ -141,7 +147,6 @@ builder.Services.AddHostedService<GameDB.Infrastructure.Workers.PriceSyncWorker>
 
     // ── Background Workers ───────────────────────────────────────────────────
 
-    builder.Services.AddHostedService<GameDB.Infrastructure.Enrichment.GameEnrichmentWorker>();
     builder.Services.AddHostedService<GameDB.Infrastructure.Services.AlertCheckerHostedService>();
 
     // ── Налаштування ─────────────────────────────────────────────────────────

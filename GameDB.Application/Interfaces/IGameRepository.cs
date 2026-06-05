@@ -10,7 +10,7 @@ public interface IGameRepository
     Task<Game?>      GetByExternalIdAsync(int shopId, string externalId, CancellationToken ct = default);
     Task<int>        GetTotalGamesCountAsync(CancellationToken ct = default);
     Task<List<Game>> GetGamesBatchAsync(int skip, int take, CancellationToken ct = default);
-    Task<List<Game>> GetGamesBatchFromShopAsync(int skip, int take,int shopId,CancellationToken ct = default);
+    Task<List<Game>> GetGamesBatchFromShopAsync(int skip, int take, int shopId, CancellationToken ct = default);
     Task<int>        GetGamesNotSyncedSinceCountAsync(DateTime since, CancellationToken ct = default);
     Task<List<Game>> GetGamesNotSyncedSinceBatchAsync(DateTime since, int skip, int take, CancellationToken ct = default);
 
@@ -22,8 +22,7 @@ public interface IGameRepository
         int shopId, IReadOnlyCollection<string> candidates, CancellationToken ct = default);
 
     Task<List<string>> GetExternalIdsByStatusAsync(int shopId, GameImportStatus status, int count, CancellationToken ct = default);
-    Task<int> GetExternalIdsByStatusAsyncCount(int shopId, GameImportStatus status, CancellationToken ct = default);
-
+    Task<int>          GetExternalIdsByStatusAsyncCount(int shopId, GameImportStatus status, CancellationToken ct = default);
     Task<List<string>> GetExternalIdsBatchAsync(int shopId, int skip, int take, CancellationToken ct = default);
 
     // ── Запис ────────────────────────────────────────────────────────────────
@@ -37,16 +36,33 @@ public interface IGameRepository
     /// Один round-trip замість N окремих AddAsync.
     /// </summary>
     Task ImportBatchAsync(
-        IReadOnlyCollection<Game> newGames,
+        IReadOnlyCollection<Game>           newGames,
         IReadOnlyCollection<GameExternalId> newLinks,
-        CancellationToken ct = default);
+        CancellationToken                   ct = default);
 
-    // ── Lookup ───────────────────────────────────────────────────────────────
+    // ── Lookup (одиночні) ────────────────────────────────────────────────────
     Task<Developer> GetOrCreateDeveloperAsync(string name, CancellationToken ct = default);
     Task<Publisher> GetOrCreatePublisherAsync(string name, CancellationToken ct = default);
-    Task<Genre>     GetOrCreateGenreAsync(string name, CancellationToken ct = default);
-    Task<Tag>       GetOrCreateTagAsync(string name, CancellationToken ct = default);
 
+    // ── Lookup (bulk) — FIX N+1 ──────────────────────────────────────────────
+    // Замінюють GetOrCreateGenreAsync/GetOrCreateTagAsync що викликались у циклі
+    // по кожному жанру/тегу окремо (N+1). Один INSERT batch + один SELECT замість N пар.
+
+    /// <summary>
+    /// Upsert усіх жанрів одним SQL, повертає словник name → Genre.
+    /// Безпечно для порожньої колекції (повертає пустий Dictionary).
+    /// </summary>
+    Task<Dictionary<string, Genre>> GetOrCreateGenresBulkAsync(
+        IReadOnlyCollection<string> names, CancellationToken ct = default);
+
+    /// <summary>
+    /// Upsert усіх тегів одним SQL, повертає словник name → Tag.
+    /// Безпечно для порожньої колекції (повертає пустий Dictionary).
+    /// </summary>
+    Task<Dictionary<string, Tag>> GetOrCreateTagsBulkAsync(
+        IReadOnlyCollection<string> names, CancellationToken ct = default);
+
+    // ── Пошук ────────────────────────────────────────────────────────────────
     Task<Game?> FindByNormalizedNameAsync(string normalizedName, CancellationToken ct = default);
     Task<List<Game>> GetGamesByNormalizedNamesAsync(IEnumerable<string> names, CancellationToken ct);
     Task AddExternalIdAsync(GameExternalId externalId, CancellationToken ct = default);
