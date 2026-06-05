@@ -132,8 +132,6 @@ public sealed class EGDataClient : IEGDataClient
             if (!offerResponse.IsSuccessStatusCode)
             {
                 _logger.LogWarning("Offer request failed {Id} → {Status}", itemId, offerResponse.StatusCode);
-
-                //return new StorePriceInfo(0, 0, _country, BuildStoreUrl(itemId));
             }
 
             var offerJson = await offerResponse.Content.ReadAsStringAsync(ct);
@@ -171,7 +169,7 @@ public sealed class EGDataClient : IEGDataClient
             if(originalPrice > 0)
                 discountPercent = Math.Round(1 - (discountPrice / originalPrice), 2);
 
-            return new StorePriceInfo(originalPrice, (short)(discountPercent * 100), _country, BuildStoreUrl(itemId));
+            return new StorePriceInfo(originalPrice, (short)(discountPercent * 100), _country);
         }
         catch (Exception ex)
         {
@@ -179,6 +177,4 @@ public sealed class EGDataClient : IEGDataClient
             return null;
         }
     }
-    private static string BuildStoreUrl(string slugOrId)
-        => $"https://store.epicgames.com/en-US/p/{slugOrId}";
 }

@@ -22,5 +22,5 @@ public interface IStoreProvider
     /// GOG:   https://www.gog.com/game/{slug}  (fallback на externalId)
     /// Epic:  https://store.epicgames.com/en-US/p/{slug}  (fallback на externalId)
     /// </summary>
-    string? BuildExternalUrl(string externalId);
+    public string BuildOfferUrl(string slugOrId);
 }

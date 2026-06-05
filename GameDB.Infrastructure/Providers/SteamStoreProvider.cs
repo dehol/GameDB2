@@ -69,7 +69,6 @@ public sealed class SteamStoreProvider(
             RatingCount    = totalReviews > 0 ? totalReviews : null,
             HeaderImageUrl = BuildHeaderImageUrl(appId),
             IconImageUrl   = BuildIconImageUrl(appId),
-            StoreUrl       = BuildStoreUrl(appId)
         };
     }
 
@@ -80,19 +79,16 @@ public sealed class SteamStoreProvider(
         if (dto is null) return null;
         if (!TryParsePrice(dto.InitialPrice ?? dto.Price, out var price)) return null;
         short.TryParse(dto.Discount, out var discount);
-        return new StorePriceInfo(price, discount, "USD", BuildStoreUrl(appId));
+        return new StorePriceInfo(price, discount, "USD");
     }
 
     /// <summary>Steam: будує URL по числовому AppId. Slug ігнорується.</summary>
-    public string? BuildExternalUrl(string externalId)
-        => int.TryParse(externalId, out var appId) ? BuildStoreUrl(appId) : null;
-
     public static string BuildHeaderImageUrl(int appId)
         => $"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{appId}/header.jpg";
     public static string BuildIconImageUrl(int appId)
         => $"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{appId}/capsule_184x69.jpg";
-    public static string BuildStoreUrl(int appId)
-        => $"https://store.steampowered.com/app/{appId}/";
+    string IStoreProvider.BuildOfferUrl(string slugOrId)
+        => $"https://store.steampowered.com/app/{slugOrId}/";
 
     private static string? NoneToNull(string? s)
         => string.IsNullOrWhiteSpace(s) || s.Equals("none", StringComparison.OrdinalIgnoreCase) ? null : s;

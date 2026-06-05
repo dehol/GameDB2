@@ -1,6 +1,5 @@
 using GameDB.Application.DTOs;
 using GameDB.Application.Interfaces;
-using GameDB.Application.Services;
 using GameDB.Domain.Entities;
 using GameDB.Domain.Enums;
 using GameDB.Infrastructure.Data;
@@ -8,23 +7,21 @@ using Microsoft.EntityFrameworkCore;
 
 namespace GameDB.Infrastructure.Catalog;
 
-/// <summary>
-/// Infrastructure-реалізація ICatalogRepository.
-/// Всі EF-запити зосереджені тут — Application про DbContext не знає.
-/// </summary>
 public sealed class CatalogRepository(AppDbContext db) : ICatalogRepository
 {
     // ─── Каталог з фільтрами ─────────────────────────────────────────────────
 
     public async Task<(List<CatalogGameDto> Items, int TotalCount)> GetPagedAsync(
-        CatalogFilterDto f, CancellationToken ct = default)
+    CatalogFilterDto f, CancellationToken ct = default)
     {
         var query = db.Games
             .AsNoTracking()
-            .Where(g => g.ImportStatus >= GameImportStatus.Basic)  // Pending — не показуємо
+            .Where(g => g.ImportStatus == GameImportStatus.Full)
             .Include(g => g.Developer)
             .Include(g => g.Genres)
-            .Include(g => g.GameOffers).ThenInclude(o => o.Shop)
+            .Include(g => g.GameExternalIds).ThenInclude(e => e.GameOffers)
+            .Include(g => g.GameExternalIds).ThenInclude(e => e.Shop)
+            .AsSplitQuery() // 🌟 ВИПРАВЛЕНО: Запобігає Cartesian Explosion, розділяючи важкі JOIN на окремі швидкі запити
             .AsQueryable();
 
         // ── Пошук по назві ────────────────────────────────────────────────────
@@ -38,13 +35,18 @@ public sealed class CatalogRepository(AppDbContext db) : ICatalogRepository
         if (f.GenreIds.Count > 0)
             query = query.Where(g => g.Genres.Any(genre => f.GenreIds.Contains(genre.GenreId)));
 
+        // ── Теги ──────────────────────────────────────────────────────────────
+        if (f.TagIds.Count > 0)
+            query = query.Where(g => g.Tags.Any(tag => f.TagIds.Contains(tag.TagId)));
+
         // ── Розробник / Видавець / Магазин ────────────────────────────────────
         if (f.DeveloperId.HasValue)
             query = query.Where(g => g.DeveloperId == f.DeveloperId.Value);
         if (f.PublisherId.HasValue)
             query = query.Where(g => g.PublisherId == f.PublisherId.Value);
+        
         if (f.ShopId.HasValue)
-            query = query.Where(g => g.GameOffers.Any(o => o.ShopId == f.ShopId.Value));
+            query = query.Where(g => g.GameExternalIds.Any(e => e.ShopId == f.ShopId.Value && e.GameOffers.Any()));
 
         // ── Роки випуску ──────────────────────────────────────────────────────
         if (f.YearFrom.HasValue)
@@ -56,17 +58,17 @@ public sealed class CatalogRepository(AppDbContext db) : ICatalogRepository
         if (f.MinRating.HasValue)
             query = query.Where(g => g.Rating != null && g.Rating >= f.MinRating.Value);
 
-        // ── Ціна / Знижка / Безкоштовні ──────────────────────────────────────
+        // ── Ціна / Знижка / Безкоштовні ───────────────────────────────────────
         if (f.MinPrice.HasValue)
-            query = query.Where(g => g.GameOffers.Any(o => o.FinalPrice >= f.MinPrice.Value));
+            query = query.Where(g => g.GameExternalIds.Any(e => e.GameOffers.Any(o => o.FinalPrice >= f.MinPrice.Value)));
         if (f.MaxPrice.HasValue)
-            query = query.Where(g => g.GameOffers.Any(o => o.FinalPrice <= f.MaxPrice.Value));
+            query = query.Where(g => g.GameExternalIds.Any(e => e.GameOffers.Any(o => o.FinalPrice <= f.MaxPrice.Value)));
         if (f.MinDiscount.HasValue)
-            query = query.Where(g => g.GameOffers.Any(o => o.CurrentDiscount >= f.MinDiscount.Value));
+            query = query.Where(g => g.GameExternalIds.Any(e => e.GameOffers.Any(o => o.CurrentDiscount >= f.MinDiscount.Value)));
         if (f.IsFree == true)
-            query = query.Where(g => g.GameOffers.Any(o => o.FinalPrice == 0));
+            query = query.Where(g => g.GameExternalIds.Any(e => e.GameOffers.Any(o => o.FinalPrice == 0)));
 
-        // ── TotalCount (до пагінації) ─────────────────────────────────────────
+        // ── TotalCount ────────────────────────────────────────────────────────
         var totalCount = await query.CountAsync(ct);
 
         // ── Сортування ────────────────────────────────────────────────────────
@@ -78,18 +80,15 @@ public sealed class CatalogRepository(AppDbContext db) : ICatalogRepository
             (CatalogSortBy.ReleaseDate, false) => query.OrderBy(g => g.ReleaseDate),
             (CatalogSortBy.Rating,      true)  => query.OrderByDescending(g => g.Rating ?? 0),
             (CatalogSortBy.Rating,      false) => query.OrderBy(g => g.Rating ?? 0),
-            (CatalogSortBy.Popularity,  true)  => query.OrderByDescending(g =>
-                (g.Rating ?? 0) * Math.Log10((g.RatingCount ?? 0) + 1)),
-            (CatalogSortBy.Popularity,  false) => query.OrderBy(g =>
-                (g.Rating ?? 0) * Math.Log10((g.RatingCount ?? 0) + 1)),
-            (CatalogSortBy.Price,       true)  => query.OrderByDescending(g =>
-                g.GameOffers.Min(o => (decimal?)o.FinalPrice) ?? 999999),
-            (CatalogSortBy.Price,       false) => query.OrderBy(g =>
-                g.GameOffers.Min(o => (decimal?)o.FinalPrice) ?? 999999),
-            (CatalogSortBy.Discount,    true)  => query.OrderByDescending(g =>
-                g.GameOffers.Max(o => (int?)o.CurrentDiscount) ?? 0),
-            (CatalogSortBy.Discount,    false) => query.OrderBy(g =>
-                g.GameOffers.Max(o => (int?)o.CurrentDiscount) ?? 0),
+            
+            // 🌟 ВИПРАВЛЕНО: Замість Math.Log10 (який ламав SQL-трансляцію) юзаємо чисте множення. Тепер сортування і пагінація працюють на БД!
+            (CatalogSortBy.Popularity,  true)  => query.OrderByDescending(g => (g.Rating ?? 0) * (g.RatingCount ?? 0)),
+            (CatalogSortBy.Popularity,  false) => query.OrderBy(g => (g.Rating ?? 0) * (g.RatingCount ?? 0)),
+            
+            (CatalogSortBy.Price,       true)  => query.OrderByDescending(g => g.GameExternalIds.SelectMany(e => e.GameOffers).Min(o => (decimal?)o.FinalPrice) ?? 999999),
+            (CatalogSortBy.Price,       false) => query.OrderBy(g => g.GameExternalIds.SelectMany(e => e.GameOffers).Min(o => (decimal?)o.FinalPrice) ?? 999999),
+            (CatalogSortBy.Discount,    true)  => query.OrderByDescending(g => g.GameExternalIds.SelectMany(e => e.GameOffers).Max(o => (int?)o.CurrentDiscount) ?? 0),
+            (CatalogSortBy.Discount,    false) => query.OrderBy(g => g.GameExternalIds.SelectMany(e => e.GameOffers).Max(o => (int?)o.CurrentDiscount) ?? 0),
             (CatalogSortBy.UpdatedAt,   true)  => query.OrderByDescending(g => g.UpdatedAt),
             (CatalogSortBy.UpdatedAt,   false) => query.OrderBy(g => g.UpdatedAt),
             _                                  => query.OrderByDescending(g => g.Rating ?? 0),
@@ -114,6 +113,14 @@ public sealed class CatalogRepository(AppDbContext db) : ICatalogRepository
             .OrderByDescending(g => g.GameCount)
             .Take(30)
             .Select(g => new GenreFilterItemDto(g.GenreId, g.Name, g.GameCount))
+            .ToListAsync(ct);
+
+        var tags = await db.Tags
+            .AsNoTracking()
+            .Select(t => new { t.TagId, t.Name, GameCount = t.Games.Count() })
+            .OrderByDescending(t => t.GameCount)
+            .Take(30)
+            .Select(t => new TagFilterItemDto(t.TagId, t.Name, t.GameCount))
             .ToListAsync(ct);
 
         var developers = await db.Developers
@@ -148,7 +155,7 @@ public sealed class CatalogRepository(AppDbContext db) : ICatalogRepository
             .Where(o => o.FinalPrice != null)
             .MaxAsync(o => (decimal?)o.FinalPrice, ct) ?? 100m;
 
-        return new CatalogSidebarDto(genres, developers, publishers, shops, yearMin, yearMax, maxPrice);
+        return new CatalogSidebarDto(genres, tags, developers, publishers, shops, yearMin, yearMax, maxPrice);
     }
 
     // ─── Деталі гри ──────────────────────────────────────────────────────────
@@ -161,31 +168,29 @@ public sealed class CatalogRepository(AppDbContext db) : ICatalogRepository
             .Include(g => g.Publisher)
             .Include(g => g.Genres)
             .Include(g => g.Tags)
-            .Include(g => g.ExternalIds)
-            .Include(g => g.GameOffers).ThenInclude(o => o.Shop)
+            .Include(g => g.GameExternalIds).ThenInclude(e => e.Shop)
+            .Include(g => g.GameExternalIds).ThenInclude(e => e.GameOffers)
             .FirstOrDefaultAsync(g => g.GameId == gameId, ct);
 
         if (game is null) return null;
 
-        var steamExtId = game.ExternalIds
-            .FirstOrDefault(e => e.ShopId == 1)
-            ?.ExternalId;
-
-        var offers = game.GameOffers
-            .OrderBy(o => o.FinalPrice ?? o.CurrentPrice)
-            .Select(o => new GameOfferDto(
-                GameOfferId:  o.GameOfferId,
-                ShopName:     o.Shop.Name,
-                ShopBaseUrl:  o.Shop.BaseUrl,
-                CurrentPrice: o.CurrentPrice,
-                FinalPrice:   o.FinalPrice,
-                Discount:     o.CurrentDiscount,
-                Currency:     o.Currency,
-                DownloadUrl:  o.DownloadUrl,
-                LastSyncedAt: o.LastSyncedAt))
+        // ВИПРАВЛЕНО: Розгортаємо всі оффери з усіх ExternalId в єдиний плоский список
+        var offers = game.GameExternalIds
+            .SelectMany(e => e.GameOffers.Select(o => new { External = e, Offer = o }))
+            .OrderBy(x => x.Offer.FinalPrice ?? x.Offer.CurrentPrice)
+            .Select(x => new GameOfferDto(
+                GameOfferId:  x.Offer.GameOfferId,
+                ShopName:     x.External.Shop?.Name ?? "Unknown",
+                ShopBaseUrl:  x.External.Shop?.BaseUrl,
+                CurrentPrice: x.Offer.CurrentPrice,
+                FinalPrice:   x.Offer.FinalPrice,
+                Discount:     x.Offer.CurrentDiscount,
+                Currency:     x.Offer.Currency,
+                DownloadUrl:  x.External.ExternalUrl,
+                LastSyncedAt: x.Offer.LastSyncedAt))
             .ToList();
 
-        var externalIds = game.ExternalIds
+        var externalIds = game.GameExternalIds
             .Where(e => e.Shop is not null)
             .ToDictionary(e => e.Shop!.Slug, e => e.ExternalId);
  
@@ -210,9 +215,14 @@ public sealed class CatalogRepository(AppDbContext db) : ICatalogRepository
 
     private static CatalogGameDto MapToCard(Game game)
     {
-        var best = game.GameOffers
-            .OrderBy(o => o.FinalPrice ?? o.CurrentPrice)
+        // ВИПРАВЛЕНО: Знаходимо найкращий оффер серед усіх ExternalIds
+        var bestPair = game.GameExternalIds
+            .SelectMany(e => e.GameOffers.Select(o => new { External = e, Offer = o }))
+            .OrderBy(x => x.Offer.FinalPrice ?? x.Offer.CurrentPrice)
             .FirstOrDefault();
+
+        var bestExt = bestPair?.External;
+        var best = bestPair?.Offer;
 
         return new CatalogGameDto(
             GameId:           game.GameId,
@@ -228,8 +238,8 @@ public sealed class CatalogRepository(AppDbContext db) : ICatalogRepository
             BestCurrentPrice: best?.CurrentPrice,
             BestDiscount:     best?.CurrentDiscount ?? 0,
             BestCurrency:     best?.Currency,
-            BestShopName:     best?.Shop.Name,
-            BestDownloadUrl:  best?.DownloadUrl,
+            BestShopName:     bestExt?.Shop?.Name,
+            BestDownloadUrl:  bestExt?.ExternalUrl,
             IsFree:           best?.FinalPrice == 0m);
     }
 }

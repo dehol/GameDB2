@@ -10,16 +10,24 @@ public sealed class GameAlertRepository(AppDbContext db) : IGameAlertRepository
     public async Task<GamePriceAlertContextDto> GetPriceContextAsync(
         int gameId, int? userId, CancellationToken ct = default)
     {
+        // 1. Отримуємо базову інформацію про гру
         var game = await db.Games.AsNoTracking()
             .Where(g => g.GameId == gameId)
             .Select(g => new { g.GameId, g.Name, g.HeaderImage })
             .FirstOrDefaultAsync(ct)
             ?? throw new InvalidOperationException("Гру не знайдено.");
 
-        var offers = await db.GameOffers.AsNoTracking()
-            .Include(o => o.Shop)
-            .Where(o => o.GameId == gameId)
+        // 2. Робимо запит через GameExternalIds, оскільки саме там лежать зв'язки з Shop та GameOffers
+        var externalIds = await db.GameExternalIds.AsNoTracking()
+            .Include(e => e.Shop)
+            .Include(e => e.GameOffers)
+            .Where(e => e.GameId == gameId)
             .ToListAsync(ct);
+
+        // 3. Витягуємо (flatten) всі оффери з усіх зовнішніх джерел цієї гри в один плаский список
+        var offers = externalIds
+            .SelectMany(e => e.GameOffers)
+            .ToList();
 
         var currency = offers.FirstOrDefault()?.Currency ?? "USD";
 
@@ -47,8 +55,10 @@ public sealed class GameAlertRepository(AppDbContext db) : IGameAlertRepository
                 ? Math.Min(historicalLow.Value, currentLowest.Value)
                 : currentLowest;
 
-        var shops = offers
-            .GroupBy(o => new { o.ShopId, o.Shop.Name })
+        // 4. Формуємо список магазинів на основі externalIds, які мають актуальні цінові пропозиції
+        var shops = externalIds
+            .Where(e => e.GameOffers.Any() && e.Shop != null)
+            .GroupBy(e => new { e.ShopId, e.Shop.Name })
             .Select(g => new PriceAlertShopOptionDto(g.Key.ShopId, g.Key.Name))
             .OrderBy(s => s.ShopName)
             .ToList();

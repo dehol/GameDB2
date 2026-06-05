@@ -19,9 +19,10 @@ public sealed class AdminRepository(AppDbContext db) : IAdminRepository
                 Total        = g.Count(),
                 Basic        = g.Count(x => x.ImportStatus == GameImportStatus.Basic),
                 Full         = g.Count(x => x.ImportStatus == GameImportStatus.Full),
-                WithPrice    = g.Count(x => x.GameOffers.Any()),
-                BasicNoPrice = g.Count(x => x.ImportStatus == GameImportStatus.Basic
-                                            && !x.GameOffers.Any()),
+                // Витягуємо оффери через зв'язок GameExternalIds
+                WithPrice    = g.Count(x => x.GameExternalIds.SelectMany(e => e.GameOffers).Any()),
+                BasicNoPrice = g.Count(x => x.ImportStatus == GameImportStatus.Basic 
+                                            && !x.GameExternalIds.SelectMany(e => e.GameOffers).Any()),
             })
             .FirstOrDefaultAsync(ct);
 
@@ -63,9 +64,9 @@ public sealed class AdminRepository(AppDbContext db) : IAdminRepository
             var term = search.Trim();
             if (int.TryParse(term, out var gameId))
             {
-                // Шукаємо по GameId або по Steam ExternalId
-                q = q.Where(g => g.GameId == gameId
-                    || g.ExternalIds.Any(e =>
+                // Шукаємо по GameId або по Steam ExternalId (через оновлену властивість GameExternalIds)
+                q = q.Where(g => g.GameId == gameId 
+                    || g.GameExternalIds.Any(e => 
                             e.ShopId == 1 && e.ExternalId == term));
             }
             else
@@ -79,11 +80,13 @@ public sealed class AdminRepository(AppDbContext db) : IAdminRepository
         {
             AdminGameCoverageFilter.StatusBasic   => q.Where(g => g.ImportStatus == GameImportStatus.Basic),
             AdminGameCoverageFilter.StatusFull    => q.Where(g => g.ImportStatus == GameImportStatus.Full),
-            AdminGameCoverageFilter.NoPrice       => q.Where(g => !g.GameOffers.Any()),
-            AdminGameCoverageFilter.HasPrice      => q.Where(g =>  g.GameOffers.Any()),
-            AdminGameCoverageFilter.NoExternalId  => q.Where(g => !g.ExternalIds.Any()),
-            AdminGameCoverageFilter.BasicNoPrice  => q.Where(g =>
-                g.ImportStatus == GameImportStatus.Basic && !g.GameOffers.Any()),
+            // Оновлено перевірки наявності офферів
+            AdminGameCoverageFilter.NoPrice       => q.Where(g => !g.GameExternalIds.SelectMany(e => e.GameOffers).Any()),
+            AdminGameCoverageFilter.HasPrice      => q.Where(g =>  g.GameExternalIds.SelectMany(e => e.GameOffers).Any()),
+            // Оновлено перевірку наявності ExternalIds
+            AdminGameCoverageFilter.NoExternalId  => q.Where(g => !g.GameExternalIds.Any()),
+            AdminGameCoverageFilter.BasicNoPrice  => q.Where(g => 
+                g.ImportStatus == GameImportStatus.Basic && !g.GameExternalIds.SelectMany(e => e.GameOffers).Any()),
             _ => q,
         };
 
@@ -97,12 +100,14 @@ public sealed class AdminRepository(AppDbContext db) : IAdminRepository
                 g.GameId,
                 g.Name,
                 g.ImportStatus,
-                g.ExternalIds
+                // Замінено ExternalIds на GameExternalIds
+                g.GameExternalIds
                       .Where(e => e.ShopId == 1)
                     .Select(e => e.ExternalId)
                     .FirstOrDefault(),
-                g.GameOffers.Any(),
-                g.GameOffers.Max(o => (DateTime?)o.LastSyncedAt),
+                // Замінено GameOffers на GameExternalIds.SelectMany(...)
+                g.GameExternalIds.SelectMany(e => e.GameOffers).Any(),
+                g.GameExternalIds.SelectMany(e => e.GameOffers).Max(o => (DateTime?)o.LastSyncedAt),
                 g.Rating))
             .ToListAsync(ct);
 

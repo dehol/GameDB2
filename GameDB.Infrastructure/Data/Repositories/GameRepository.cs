@@ -16,41 +16,52 @@ public sealed class GameRepository(AppDbContext db) : IGameRepository
         => db.Games
             .Include(g => g.Genres)
             .Include(g => g.Tags)
-            .Include(g => g.ExternalIds)
+            .Include(g => g.GameExternalIds)
             .FirstOrDefaultAsync(g =>
-                g.ExternalIds.Any(e => e.ShopId == shopId && e.ExternalId == externalId), ct);
+                g.GameExternalIds.Any(e => e.ShopId == shopId && e.ExternalId == externalId), ct);
 
     public Task<int> GetTotalGamesCountAsync(CancellationToken ct = default)
         => db.Games.CountAsync(ct);
 
+    /// <summary>
+    /// Ціни тепер доступні через ExternalIds[i].GameOffer, а не через окрему колекцію GameOffers.
+    /// </summary>
     public Task<List<Game>> GetGamesBatchAsync(int skip, int take, CancellationToken ct = default)
         => db.Games.AsNoTracking()
-            .Include(g => g.GameOffers)
-            .Include(g => g.ExternalIds)
+            .Include(g => g.GameExternalIds)
+                .ThenInclude(e => e.GameOffers)
             .OrderBy(g => g.GameId)
             .Skip(skip).Take(take)
             .ToListAsync(ct);
-    public Task<List<Game>> GetGamesBatchFromShopAsync(int skip, int take,int shopId,CancellationToken ct = default)
-        =>  db.Games
+
+    public Task<List<Game>> GetGamesBatchFromShopAsync(int skip, int take, int shopId, CancellationToken ct = default)
+        => db.Games
             .AsNoTracking()
-            .Include(g => g.GameOffers)
-            .Include(g => g.ExternalIds)
+            .Include(g => g.GameExternalIds)
                 .ThenInclude(e => e.Shop)
-            .Where(g => g.ExternalIds.Any(e => e.ShopId == shopId))
+            .Include(g => g.GameExternalIds)
+                .ThenInclude(e => e.GameOffers)
+            .Where(g => g.GameExternalIds.Any(e => e.ShopId == shopId))
             .OrderBy(g => g.GameId)
             .Skip(skip)
             .Take(take)
             .ToListAsync(ct);
-        
+
 
     // ── Not-synced-since ─────────────────────────────────────────────────────
 
+    /// <summary>
+    /// Ігри, у яких жоден оффер не синхронізувався після <paramref name="since"/>.
+    /// GameOffer.LastSyncedAt тепер доступний через ExternalIds → GameOffer.
+    /// </summary>
     private IQueryable<Game> QueryNotSyncedSince(DateTime since)
     {
         var sinceUtc = since.Kind == DateTimeKind.Utc
             ? since : DateTime.SpecifyKind(since, DateTimeKind.Utc);
+
         return db.Games.AsNoTracking()
-            .Where(g => !g.GameOffers.Any(o => o.LastSyncedAt != null && o.LastSyncedAt >= sinceUtc));
+            .Where(g => !g.GameExternalIds.Any(e =>
+                e.GameOffers.Any(o => o.LastSyncedAt != null && o.LastSyncedAt >= sinceUtc)));
     }
 
     public Task<int> GetGamesNotSyncedSinceCountAsync(DateTime since, CancellationToken ct = default)
@@ -58,8 +69,8 @@ public sealed class GameRepository(AppDbContext db) : IGameRepository
 
     public Task<List<Game>> GetGamesNotSyncedSinceBatchAsync(DateTime since, int skip, int take, CancellationToken ct = default)
         => QueryNotSyncedSince(since)
-            .Include(g => g.GameOffers)
-            .Include(g => g.ExternalIds)
+            .Include(g => g.GameExternalIds)
+                .ThenInclude(e => e.GameOffers)
             .OrderBy(g => g.GameId)
             .Skip(skip).Take(take)
             .ToListAsync(ct);
@@ -89,6 +100,7 @@ public sealed class GameRepository(AppDbContext db) : IGameRepository
             .Where(e => e.ShopId == shopId && e.Game.ImportStatus == status)
             .OrderBy(e => e.GameId).Take(count)
             .Select(e => e.ExternalId).ToListAsync(ct);
+
     public Task<int> GetExternalIdsByStatusAsyncCount(
         int shopId, GameImportStatus status, CancellationToken ct = default)
         => db.Set<GameExternalId>()
@@ -171,11 +183,11 @@ public sealed class GameRepository(AppDbContext db) : IGameRepository
     }
 
     public Task<Game?> FindByNormalizedNameAsync(string normalizedName, CancellationToken ct = default)
-        => db.Games.Include(g => g.ExternalIds)
+        => db.Games.Include(g => g.GameExternalIds)
             .FirstOrDefaultAsync(g => g.NormalizedName == normalizedName, ct);
 
     public async Task<List<Game>> GetGamesByNormalizedNamesAsync(IEnumerable<string> names, CancellationToken ct)
-        => await db.Games.Include(g => g.ExternalIds)
+        => await db.Games.Include(g => g.GameExternalIds)
             .Where(g => names.Contains(g.NormalizedName)).ToListAsync(ct);
 
     public async Task AddExternalIdAsync(GameExternalId externalId, CancellationToken ct = default)

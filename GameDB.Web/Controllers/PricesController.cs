@@ -22,9 +22,9 @@ public class PricesController : ControllerBase
         ILogger<PricesController> logger)
     {
         _offerRepository = offerRepository;
-        _gameRepository = gameRepository;
-        _adminService = adminService;
-        _logger = logger;
+        _gameRepository  = gameRepository;
+        _adminService    = adminService;
+        _logger          = logger;
     }
 
     [HttpGet("game/{gameId:int}")]
@@ -35,15 +35,18 @@ public class PricesController : ControllerBase
             return NotFound(new { message = $"Гру з ID {gameId} не знайдено." });
 
         var offers = await _offerRepository.GetByGameIdAsync(gameId);
-        
+
+        // GameOffer більше не має прямих Shop і DownloadUrl.
+        // Shop — через o.External.Shop (GameExternalId → Shop).
+        // StoreUrl — через o.External.ExternalUrl (посилання на сторінку гри в магазині).
         var result = offers.Select(o => new
         {
             o.GameOfferId,
-            ShopName = o.Shop?.Name ?? "Unknown Shop",
+            ShopName     = o.External?.Shop?.Name ?? "Unknown Shop",
             o.CurrentPrice,
             o.CurrentDiscount,
             o.Currency,
-            o.DownloadUrl,
+            StoreUrl     = o.External?.ExternalUrl,
             o.LastSyncedAt
         });
 
@@ -58,10 +61,8 @@ public class PricesController : ControllerBase
             return BadRequest(new { message = "Розмір батчу має бути від 1 до 200." });
 
         if (_adminService.StartPriceSync(batchSize))
-        {
             return Accepted(new { message = "Синхронізацію успішно запущено у фоні." });
-        }
-        
+
         return BadRequest(new { message = "Синхронізація вже виконується." });
     }
 }

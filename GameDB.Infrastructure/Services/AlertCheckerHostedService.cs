@@ -89,9 +89,17 @@ public sealed class AlertCheckerHostedService(
 
     private static decimal? GetBestPrice(Alert alert)
     {
-        var offers = alert.ShopId.HasValue
-            ? alert.Game.GameOffers.Where(o => o.ShopId == alert.ShopId.Value)
-            : alert.Game.GameOffers;
+        // 1. Беремо зовнішні ID гри
+        var externalIds = alert.Game.GameExternalIds;
+
+        // 2. Якщо в алерті задано конкретний магазин, фільтруємо СУТНОСТІ ЗОВНІШНІХ ID за цим магазином
+        if (alert.ShopId.HasValue)
+        {
+            externalIds = externalIds.Where(e => e.ShopId == alert.ShopId.Value).ToList(); // або без ToList, якщо це колекція в пам'яті
+        }
+
+        // 3. Тепер збираємо оффери тільки з потрібних (відфільтрованих) магазинів
+        var offers = externalIds.SelectMany(e => e.GameOffers);
 
         decimal? best = null;
         foreach (var o in offers)

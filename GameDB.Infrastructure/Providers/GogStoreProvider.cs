@@ -120,14 +120,13 @@ public sealed class GogStoreProvider(
 
         var price = dto.Price;
         var discount = dto.Discount;
-        return new StorePriceInfo(price, discount, "USD", BuildStoreUrl(externalId));
+        return new StorePriceInfo(price, discount, "USD");
     }
 
-    public string? BuildExternalUrl(string externalId)
-        => BuildStoreUrl(externalId);
 
-    private static string BuildStoreUrl(string Id)
-        => $"https://www.gog.com/game/{Id}";
+    string IStoreProvider.BuildOfferUrl(string slugOrId)
+        => $"https://www.gog.com/game/{slugOrId}";
+        
 
     private static string? NormalizeUrl(string? url)
     {

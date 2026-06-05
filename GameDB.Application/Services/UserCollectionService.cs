@@ -80,10 +80,19 @@ public sealed class UserCollectionService(
 
     public async Task<List<AlertListItemDto>> GetAlertsAsync(int userId, CancellationToken ct = default)
     {
-        var list = await alerts.GetByUserIdAsync(userId);
+        // Передаємо токен скасування в асинхронний метод, якщо він його підтримує
+        var list = await alerts.GetByUserIdAsync(userId, ct); 
+
         return list.Select(a =>
         {
-            var best = a.Game.GameOffers.OrderBy(o => o.FinalPrice ?? o.CurrentPrice).FirstOrDefault();
+            // 1. Змінено ExternalIds на GameExternalIds
+            // 2. Змінено Select на SelectMany, а GameOffer — на GameOffers
+            var best = a.Game.GameExternalIds
+                .SelectMany(e => e.GameOffers)
+                .Where(o => o != null) // Фільтруємо null пропозиції, якщо вони є
+                .OrderBy(o => o.FinalPrice ?? o.CurrentPrice)
+                .FirstOrDefault();
+
             return new AlertListItemDto(
                 a.AlertId,
                 a.GameId,
@@ -106,7 +115,7 @@ public sealed class UserCollectionService(
         if (await games.GetByIdAsync(dto.GameId, ct) is null)
             throw new InvalidOperationException("Гру не знайдено.");
 
-        var duplicate = (await alerts.GetByUserIdAsync(userId))
+        var duplicate = (await alerts.GetByUserIdAsync(userId, ct))
             .Any(a => a.GameId == dto.GameId && a.TriggeredAt is null && a.TargetPrice == dto.TargetPrice);
 
         if (duplicate)

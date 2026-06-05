@@ -10,6 +10,7 @@ public interface IGameOfferRepository
     Task UpdateGameOfferAsync(GameOffer offer, CancellationToken ct = default);
     Task<List<GameOffer>> GetByGameIdAsync(int gameId, CancellationToken ct = default);
 
+    Task<GameOffer?> GetByExternalIdRecordAsync(int externalIdRecordId, CancellationToken ct = default);
     /// <summary>
     /// Дані для графіка ціни у SteamDB-стилі.
     /// Кожна точка = сегмент [PeriodStart, PeriodEnd) з фіксованою ціною.

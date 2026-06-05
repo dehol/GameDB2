@@ -1,4 +1,7 @@
-﻿namespace GameDB.Domain.Entities;
+﻿using System;
+using System.Collections.Generic;
+
+namespace GameDB.Domain.Entities;
 
 public partial class Publisher
 {

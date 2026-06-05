@@ -145,3 +145,9 @@ public sealed class EGDataTotalPriceDto
     [JsonPropertyName("discountPercentage")]
     public int DiscountPercentage { get; init; }
 }
+
+public sealed record EGDataPriceDto(
+    decimal Price,
+    short   Discount,
+    string  Currency,
+    string? StoreUrl = null);

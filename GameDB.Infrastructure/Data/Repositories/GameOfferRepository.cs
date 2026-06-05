@@ -1,4 +1,3 @@
-using GameDB.Application.DTOs;
 using GameDB.Application.Interfaces;
 using GameDB.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
@@ -7,9 +6,22 @@ namespace GameDB.Infrastructure.Data.Repositories;
 
 public sealed class GameOfferRepository(AppDbContext context) : IGameOfferRepository
 {
+    /// <summary>
+    /// Знаходить GameOffer через GameExternalId (GameId + ShopId).
+    /// Використовується коли маємо тільки gameId/shopId, але не знаємо ExternalId.Id.
+    /// </summary>
     public async Task<GameOffer?> GetGameOfferAsync(int gameId, int shopId, CancellationToken ct = default)
         => await context.GameOffers
-            .FirstOrDefaultAsync(o => o.GameId == gameId && o.ShopId == shopId, ct);
+            .Include(o => o.External)
+            .FirstOrDefaultAsync(o => o.External.GameId == gameId && o.External.ShopId == shopId, ct);
+
+    /// <summary>
+    /// Знаходить GameOffer безпосередньо по FK (GameExternalId.Id).
+    /// Швидший шлях — використовується в PriceManagerService.
+    /// </summary>
+    public async Task<GameOffer?> GetByExternalIdRecordAsync(int externalIdRecordId, CancellationToken ct = default)
+        => await context.GameOffers
+            .FirstOrDefaultAsync(o => o.ExternalId == externalIdRecordId, ct);
 
     public async Task AddGameOfferAsync(GameOffer offer, CancellationToken ct = default)
     {
@@ -25,11 +37,16 @@ public sealed class GameOfferRepository(AppDbContext context) : IGameOfferReposi
         // INSERT або UPDATE LastSyncedAt в PriceHistory — автоматично.
     }
 
+    /// <summary>
+    /// Усі оффери для конкретної гри (через GameExternalId).
+    /// Включає Shop для відображення назви магазину.
+    /// </summary>
     public async Task<List<GameOffer>> GetByGameIdAsync(int gameId, CancellationToken ct = default)
         => await context.GameOffers
             .AsNoTracking()
-            .Include(o => o.Shop)
-            .Where(o => o.GameId == gameId)
+            .Include(o => o.External)
+                .ThenInclude(e => e.Shop)
+            .Where(o => o.External.GameId == gameId)
             .ToListAsync(ct);
 
     /// <summary>

@@ -115,15 +115,12 @@ public sealed class EGDataStoreProvider(
         var price    = dto.Price;
         var discount = dto.Discount;
         var currency = dto.Currency;
-        return new StorePriceInfo(price, discount, currency, BuildStoreUrl(externalId));
+        return new StorePriceInfo(price, discount, currency);
     }
 
     /// <summary>Epic: https://store.epicgames.com/en-US/p/{slug}  (fallback на externalId)</summary>
-    public string? BuildExternalUrl(string externalId)
-        => BuildStoreUrl(externalId);
-
-    private static string BuildStoreUrl(string Id)
-        => $"https://store.epicgames.com/en-US/p/{Id}";
+    public string BuildOfferUrl(string slugOrId)
+        => $"https://store.epicgames.com/en-US/p/{slugOrId}";
 
     private static string? FindImage(EGDataItemDto dto, params string[] preferredTypes)
     {
@@ -137,4 +134,6 @@ public sealed class EGDataStoreProvider(
     }
 
     private static string? NullIfEmpty(string? s) => string.IsNullOrWhiteSpace(s) ? null : s;
+
+    
 }

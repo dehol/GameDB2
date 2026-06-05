@@ -63,7 +63,6 @@ public sealed class StoreImportService(
             }
             catch (Exception ex)
             {
-                // FIX: помилка одного батчу не зупиняє весь імпорт
                 logger.LogError(ex, "[{Slug}] Basic: помилка батчу {From}-{To}",
                     provider.Slug, i + 1, i + batch.Count);
             }
@@ -103,13 +102,13 @@ public sealed class StoreImportService(
         foreach (var (item, normalized) in itemsWithNormalized)
         {
             Game? existing = null;
-            if (existingDict.TryGetValue(normalized, out var candidates))
-                existing = candidates.FirstOrDefault(g =>
+            if (existingDict.TryGetValue(normalized, out var candidateGames))
+                existing = candidateGames.FirstOrDefault(g =>
                     g.Name.Equals(item.Name, StringComparison.OrdinalIgnoreCase));
 
             if (existing is not null)
             {
-                if (existing.ExternalIds.Any(e => e.ShopId == provider.ShopId)
+                if (existing.GameExternalIds.Any(e => e.ShopId == provider.ShopId)
                     || linkedInBatch.Contains(existing.GameId))
                     continue;
 
@@ -118,7 +117,7 @@ public sealed class StoreImportService(
                     GameId      = existing.GameId,
                     ShopId      = provider.ShopId,
                     ExternalId  = item.ExternalId,
-                    ExternalUrl = provider.BuildExternalUrl(item.ExternalId),
+                    ExternalUrl = provider.BuildOfferUrl(item.Slug ?? item.ExternalId),
                     CreatedAt   = now
                 });
                 linkedInBatch.Add(existing.GameId);
@@ -128,21 +127,20 @@ public sealed class StoreImportService(
                 var game = new Game
                 {
                     Name           = item.Name,
-                    NormalizedName = normalized,
+                    NormalizedName = item.Slug ?? normalized,
                     ImportStatus   = GameImportStatus.Basic,
                     CreatedAt      = now,
                     UpdatedAt      = now
                 };
-                game.ExternalIds.Add(new GameExternalId
+                game.GameExternalIds.Add(new GameExternalId
                 {
                     ShopId      = provider.ShopId,
                     ExternalId  = item.ExternalId,
-                    ExternalUrl = provider.BuildExternalUrl(item.ExternalId),
+                    ExternalUrl = provider.BuildOfferUrl(item.Slug ?? item.ExternalId),
                     CreatedAt   = now
                 });
                 newGames.Add(game);
 
-                // Додаємо в словник — наступні items цього ж батчу знайдуть цю гру
                 if (!existingDict.TryGetValue(normalized, out var lst))
                     existingDict[normalized] = lst = [];
                 lst.Add(game);
@@ -202,11 +200,9 @@ public sealed class StoreImportService(
         game.ImportStatus = GameImportStatus.Full;
         game.UpdatedAt    = DateTime.UtcNow;
 
-        // FIX: Оновлюємо ExternalUrl під час збагачення.
-        // GOG/Epic: Details API повертає точніший slug ніж список.
         if (details.StoreUrl is not null)
         {
-            var extId = game.ExternalIds
+            var extId = game.GameExternalIds
                 .FirstOrDefault(e => e.ShopId == provider.ShopId && e.ExternalId == externalId);
             if (extId is not null)
                 extId.ExternalUrl = details.StoreUrl;
@@ -224,10 +220,12 @@ public sealed class StoreImportService(
         PriceSyncOperationState state,
         CancellationToken ct)
     {
+        // FIX: зберігаємо весь запис GameExternalId (а не тільки рядковий ExternalId),
+        // щоб мати доступ до e.Id (integer FK) для ProcessPriceUpdateAsync.
         var pairs = gameBatch
-            .SelectMany(g => g.ExternalIds
+            .SelectMany(g => g.GameExternalIds
                 .Where(e => e.ShopId == provider.ShopId)
-                .Select(e => (Game: g, ExternalId: e.ExternalId)))
+                .Select(e => (Game: g, ExternalIdRecord: e)))
             .ToList();
 
         if (pairs.Count == 0) return;
@@ -235,29 +233,28 @@ public sealed class StoreImportService(
         using var scope = scopeFactory.CreateScope();
         var priceManager = scope.ServiceProvider.GetRequiredService<PriceManagerService>();
 
-        foreach (var (game, extId) in pairs)
+        foreach (var (game, externalIdRecord) in pairs)
         {
             if (ct.IsCancellationRequested || !state.IsRunning) break;
             try
             {
-                var price = await provider.GetPriceAsync(extId, ct);
+                // Рядковий ExternalId ("730", "cyberpunk-2077" тощо) — для виклику API магазину.
+                var price = await provider.GetPriceAsync(externalIdRecord.ExternalId, ct);
                 if (price is null) continue;
 
+                // Integer FK (GameExternalId.Id) — для запису/оновлення GameOffer у БД.
                 await priceManager.ProcessPriceUpdateAsync(
-                    gameId:      game.GameId,
-                    shopId:      provider.ShopId,
-                    newPrice:    price.Price,
-                    newDiscount: price.Discount,
-                    currency:    price.Currency,
-                    externalId:  extId,
-                    downloadUrl: price.StoreUrl,
-                    ct:          ct);
+                    externalIdRecordId: externalIdRecord.Id,
+                    newPrice:           price.Price,
+                    newDiscount:        price.Discount,
+                    currency:           price.Currency,
+                    ct:                 ct);
 
                 state.IncrementProcessed();
             }
             catch (Exception ex)
             {
-                logger.LogError(ex, "[{Slug}] Помилка ціни {Id}", provider.Slug, extId);
+                logger.LogError(ex, "[{Slug}] Помилка ціни {Id}", provider.Slug, externalIdRecord.ExternalId);
             }
             await Task.Delay(provider.DelayBetweenRequestsMs, ct);
         }

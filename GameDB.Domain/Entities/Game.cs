@@ -1,4 +1,5 @@
-using GameDB.Domain.Enums;
+﻿using System;
+using System.Collections.Generic;
 
 namespace GameDB.Domain.Entities;
 
@@ -7,7 +8,6 @@ public partial class Game
     public int GameId { get; set; }
 
     public string Name { get; set; } = null!;
-    public string NormalizedName { get; set; } = null!;
 
     public DateOnly? ReleaseDate { get; set; }
 
@@ -23,22 +23,19 @@ public partial class Game
 
     public int? RatingCount { get; set; }
 
-    /// <summary>https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{appid}/header.jpg</summary>
     public string? HeaderImage { get; set; }
 
-    /// <summary>https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{appid}/capsule_184x69.jpg</summary>
     public string? IconImage { get; set; }
 
-    /// <summary>Pending → Basic (базовий імпорт) → Full (збагачення).</summary>
-    public GameImportStatus ImportStatus { get; set; } = GameImportStatus.Basic;
+    public Enums.GameImportStatus ImportStatus { get; set; }
+    
+    public string NormalizedName { get; set; } = null!;
 
     public virtual ICollection<Alert> Alerts { get; set; } = new List<Alert>();
 
     public virtual Developer? Developer { get; set; }
 
-    public virtual ICollection<GameExternalId> ExternalIds { get; set; } = new List<GameExternalId>();
-
-    public virtual ICollection<GameOffer> GameOffers { get; set; } = new List<GameOffer>();
+    public virtual ICollection<GameExternalId> GameExternalIds { get; set; } = new List<GameExternalId>();
 
     public virtual Publisher? Publisher { get; set; }
 

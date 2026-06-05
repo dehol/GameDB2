@@ -12,8 +12,7 @@ public sealed class UserCollectionRepository(AppDbContext db) : IUserCollectionR
         var items = await db.Wishlists
             .AsNoTracking()
             .Where(w => w.UserId == userId)
-            .Include(w => w.Game).ThenInclude(g => g.GameOffers)
-            .Include(w => w.Game).ThenInclude(g => g.ExternalIds)
+            .Include(w => w.Game).ThenInclude(g => g.GameExternalIds).ThenInclude(g => g.GameOffers)
             .OrderByDescending(w => w.AddedAt)
             .ToListAsync(ct);
 
@@ -73,8 +72,7 @@ public sealed class UserCollectionRepository(AppDbContext db) : IUserCollectionR
         var items = await db.UserLibraries
             .AsNoTracking()
             .Where(l => l.UserId == userId)
-            .Include(l => l.Game).ThenInclude(g => g.GameOffers)
-            .Include(l => l.Game).ThenInclude(g => g.ExternalIds)
+            .Include(l => l.Game).ThenInclude(g => g.GameExternalIds).ThenInclude(g => g.GameOffers)
             .Include(l => l.Shop)
             .OrderByDescending(l => l.AddedAt)
             .ToListAsync(ct);
@@ -162,7 +160,7 @@ public sealed class UserCollectionRepository(AppDbContext db) : IUserCollectionR
         var alerts = await db.Alerts
             .AsNoTracking()
             .Where(a => a.UserId == userId && a.GameId == gameId)
-            .Include(a => a.Game).ThenInclude(g => g.GameOffers)
+            .Include(a => a.Game).ThenInclude(g => g.GameExternalIds).ThenInclude(g => g.GameOffers)
             .OrderByDescending(a => a.CreatedAt)
             .ToListAsync(ct);
 
@@ -172,8 +170,8 @@ public sealed class UserCollectionRepository(AppDbContext db) : IUserCollectionR
 
     private static UserGameListItemDto MapWishlistItem(Game game, DateTime addedAt)
     {
-        var best    = game.GameOffers.OrderBy(o => o.FinalPrice ?? o.CurrentPrice).FirstOrDefault();
-        var steamId = game.ExternalIds.FirstOrDefault(e => e.Shop?.Slug == "steam")?.ExternalId;
+        var best    = game.GameExternalIds.SelectMany(g => g.GameOffers).OrderBy(o => o.FinalPrice ?? o.CurrentPrice).FirstOrDefault();
+        var steamId = game.GameExternalIds.FirstOrDefault(e => e.Shop?.Slug == "steam")?.ExternalId;
         return new UserGameListItemDto(
             game.GameId,
             game.Name,
@@ -188,8 +186,8 @@ public sealed class UserCollectionRepository(AppDbContext db) : IUserCollectionR
 
     private static UserLibraryItemDto MapLibraryItem(Game game, GameShop shop, DateTime addedAt)
     {
-        var best    = game.GameOffers.OrderBy(o => o.FinalPrice ?? o.CurrentPrice).FirstOrDefault();
-        var steamId = game.ExternalIds.FirstOrDefault(e => e.Shop?.Slug == "steam")?.ExternalId;
+        var best    = game.GameExternalIds.SelectMany(g => g.GameOffers).OrderBy(o => o.FinalPrice ?? o.CurrentPrice).FirstOrDefault();
+        var steamId = game.GameExternalIds.FirstOrDefault(e => e.Shop?.Slug == "steam")?.ExternalId;
         return new UserLibraryItemDto(
             game.GameId,
             game.Name,
@@ -206,7 +204,7 @@ public sealed class UserCollectionRepository(AppDbContext db) : IUserCollectionR
 
     private static AlertListItemDto MapAlert(Alert a)
     {
-        var best = a.Game.GameOffers.OrderBy(o => o.FinalPrice ?? o.CurrentPrice).FirstOrDefault();
+        var best = a.Game.GameExternalIds.SelectMany(g => g.GameOffers).OrderBy(o => o.FinalPrice ?? o.CurrentPrice).FirstOrDefault();
         return new AlertListItemDto(
             a.AlertId,
             a.GameId,

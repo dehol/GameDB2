@@ -118,7 +118,7 @@ public sealed class GogClient : IGogClient
                 (originalPrice - discountPrice) / originalPrice, 2
             ) : 0;
 
-            return new StorePriceInfo(originalPrice / 100m, (short)(discountPercent * 100), "US", BuildStoreUrl(itemId));
+            return new StorePriceInfo(originalPrice / 100m, (short)(discountPercent * 100), "US");
         }
         catch (Exception ex)
         {
@@ -126,9 +126,6 @@ public sealed class GogClient : IGogClient
             return null;
         }
     }
-    
-    private static string BuildStoreUrl(string slugOrId)
-        => $"https://www.gog.com/game/{slugOrId}";
         
     static decimal ParseGogPrice(string value)
     {

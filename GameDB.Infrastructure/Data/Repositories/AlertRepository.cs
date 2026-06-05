@@ -10,12 +10,12 @@ public sealed class AlertRepository : IAlertRepository
 
     public AlertRepository(AppDbContext db) => _db = db;
 
-    public async Task<List<Alert>> GetByUserIdAsync(int userId)
+    public async Task<List<Alert>> GetByUserIdAsync(int userId, CancellationToken ct)
         => await _db.Alerts
             .Where(a => a.UserId == userId)
             .Include(a => a.Game)
             .OrderByDescending(a => a.CreatedAt)
-            .ToListAsync();
+            .ToListAsync(ct);
 
     public async Task<Alert?> GetByIdAsync(int alertId)
         => await _db.Alerts.FindAsync(alertId);
@@ -43,6 +43,7 @@ public sealed class AlertRepository : IAlertRepository
         => await _db.Alerts
             .Where(a => a.TriggeredAt == null)
             .Include(a => a.Game)
+                .ThenInclude(e => e.GameExternalIds)
                 .ThenInclude(g => g.GameOffers)
             .ToListAsync();
 }

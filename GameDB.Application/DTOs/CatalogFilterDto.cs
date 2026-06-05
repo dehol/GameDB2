@@ -5,43 +5,26 @@ namespace GameDB.Application.DTOs;
 
 public record CatalogFilterDto
 {
-    // Текстовий пошук по назві гри
     public string? Search { get; init; }
-
-    // Фільтр по жанрах (OR — гра повинна мати хоча б один з обраних)
     public List<int> GenreIds { get; init; } = [];
+    public List<int> TagIds { get; init; } = []; // <-- ДОДАНО: Фільтр по тегах
 
-    // Фільтр по розробнику
     public int? DeveloperId { get; init; }
-
-    // Фільтр по видавцю
     public int? PublisherId { get; init; }
-
-    // Фільтр по магазину (хоча б один оффер у цьому магазині)
     public int? ShopId { get; init; }
 
-    // Ціновий діапазон (за FinalPrice — ціна з урахуванням знижки)
     public decimal? MinPrice { get; init; }
     public decimal? MaxPrice { get; init; }
-
-    // Мінімальний відсоток знижки
     public int? MinDiscount { get; init; }
 
-    // Роки випуску
     public int? YearFrom { get; init; }
     public int? YearTo   { get; init; }
-
-    // Мінімальний рейтинг (0–100)
     public double? MinRating { get; init; }
-
-    // Тільки безкоштовні ігри
     public bool? IsFree { get; init; }
 
-    // Сортування
     public CatalogSortBy SortBy   { get; init; } = CatalogSortBy.Popularity;
     public bool          SortDesc { get; init; } = true;
 
-    // Пагінація
     public int Page     { get; init; } = 1;
     public int PageSize { get; init; } = 24;
 }
@@ -69,7 +52,6 @@ public record CatalogGameDto(
     int?    RatingCount,
     string? DeveloperName,
     List<string> Genres,
-    // Найкращий оффер (найнижча фінальна ціна)
     decimal? BestFinalPrice,
     decimal? BestCurrentPrice,
     int      BestDiscount,
@@ -92,8 +74,7 @@ public record GameDetailDto(
     string?   DeveloperName,
     string?   PublisherName,
     List<string> Genres,
-    List<string> Tags,
-    /// <summary>Зовнішні ID гри по магазинах: slug → externalId (напр. "steam" → "730").</summary>
+    List<string> Tags, // Вже було, використовуватимемо в Details.cshtml
     Dictionary<string, string> ExternalIds,
     List<GameOfferDto> Offers,
     GameImportStatus ImportStatus
@@ -111,10 +92,11 @@ public record GameOfferDto(
     DateTime? LastSyncedAt
 );
 
-// ─── Дані для sidebar (списки для фільтрів) ────────────────────────────
+// ─── Дані для sidebar ────────────────────────────────────────────────────
 
 public record CatalogSidebarDto(
     List<GenreFilterItemDto>    Genres,
+    List<TagFilterItemDto>      Tags, // <-- ДОДАНО: Список тегів для сайдбару
     List<DeveloperFilterItemDto> Developers,
     List<PublisherFilterItemDto> Publishers,
     List<ShopFilterItemDto>     Shops,
@@ -124,11 +106,10 @@ public record CatalogSidebarDto(
 );
 
 public record GenreFilterItemDto(int GenreId, string Name, int GameCount);
+public record TagFilterItemDto(int TagId, string Name, int GameCount); // <-- ДОДАНО: Рекорд тегу
 public record DeveloperFilterItemDto(int DeveloperId, string Name);
 public record PublisherFilterItemDto(int PublisherId, string Name);
 public record ShopFilterItemDto(int ShopId, string Name);
-
-// ─── Відповідь каталогу ───────────────────────────────────────────────────
 
 public record CatalogResultDto(
     List<CatalogGameDto> Items,
