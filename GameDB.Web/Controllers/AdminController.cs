@@ -16,8 +16,8 @@ public class AdminController : ControllerBase
     public AdminController(IAdminService admin) => _admin = admin;
 
     [HttpGet("dashboard")]
-    public Task<AdminDashboardDto> GetDashboard(CancellationToken ct)
-        => _admin.GetDashboardAsync(ct);
+    public Task<AdminDashboardDto> GetDashboard()
+        => _admin.GetDashboardAsync();
 
     [HttpGet("games")]
     public Task<AdminGameListDto> GetGames(
@@ -78,6 +78,7 @@ public class AdminController : ControllerBase
     [HttpPost("import/prices/start")]
     [ValidateAntiForgeryToken]
     public IActionResult StartPrices(
+        [FromQuery] string? provider,
         [FromQuery] int batchSize = 100,
         [FromQuery] DateTime? notSyncedSince = null)
     {

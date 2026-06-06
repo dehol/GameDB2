@@ -84,3 +84,6 @@ public class ImportOperationState
         LastMessage = message;
     }
 }
+public sealed class EnrichmentOperationState : ImportOperationState { }
+public sealed class PriceSyncOperationState : ImportOperationState { }
+public sealed class BasicImportOperationState : ImportOperationState { }

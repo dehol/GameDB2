@@ -1,3 +1,4 @@
+using GameDB.Application.Services.Import;
 using GameDB.Domain.Enums;
 namespace GameDB.Application.DTOs;
 
@@ -30,7 +31,24 @@ public record ImportJobStatusDto(
     string? LastMessage,
     string? LastError,
     int? Processed = null,
-    int? Total = null);
+    int? Total = null)
+{
+    // Автоматичний мапінг із бізнес-класу стану в простий DTO для фронтенду
+    public static ImportJobStatusDto FromState(ImportOperationState state, string defaultSource)
+    {
+        return new ImportJobStatusDto(
+            IsRunning:     state.IsRunning,
+            Source:        state.CurrentProvider ?? defaultSource,
+            StartedAt:     state.StartedAt,
+            FinishedAt:    state.FinishedAt,
+            LastBatchSize: state.BatchSize,
+            LastMessage:   state.LastMessage,
+            LastError:     state.LastError,
+            Processed:     state.Processed,
+            Total:         state.Total
+        );
+    }
+}
 
 public record AdminDashboardDto(
     AdminStatsDto Stats,
@@ -41,7 +59,6 @@ public sealed record AdminGameRowDto(
     int     GameId,
     string  Name,
     GameImportStatus ImportStatus,
-    string? SteamExternalId,     // null якщо не Steam-гра
     bool    HasPrice,
     DateTime? LastSyncedAt,
     double? Rating);

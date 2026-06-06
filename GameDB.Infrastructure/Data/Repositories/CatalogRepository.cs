@@ -14,18 +14,10 @@ public sealed class CatalogRepository(AppDbContext db) : ICatalogRepository
     public async Task<(List<CatalogGameDto> Items, int TotalCount)> GetPagedAsync(
         CatalogFilterDto f, CancellationToken ct = default)
     {
-        // Крок 1: Базовий запит (лише фільтри, без Include).
-        // Використовується для CountAsync — чистий SELECT COUNT(*) без JOIN-вибухів.
         var baseQuery = BuildFilteredQuery(f);
 
-        // Крок 2: Точний підрахунок (без Include → EF не приєднує колекції до COUNT).
         var totalCount = await baseQuery.CountAsync(ct);
 
-        // Крок 3: Сортування зі СТАБІЛЬНИМ вторинним ключем GameId.
-        // ⚠️ КРИТИЧНО: без ThenBy(GameId) SQL-сервер повертає рядки в довільному
-        // порядку при однаковому основному значенні (Rating=null → 0*0=0 для всіх).
-        // Це спричиняє перекривання сторінок: одні ігри з'являються двічі, інші
-        // не з'являються взагалі — саме тому пагінація "не працювала".
         IOrderedQueryable<Game> sorted = (f.SortBy, f.SortDesc) switch
         {
             (CatalogSortBy.Name,        true)  => baseQuery.OrderByDescending(g => g.Name)

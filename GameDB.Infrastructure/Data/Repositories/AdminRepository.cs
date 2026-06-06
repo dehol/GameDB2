@@ -98,11 +98,6 @@ public sealed class AdminRepository(AppDbContext db) : IAdminRepository
                 g.GameId,
                 g.Name,
                 g.ImportStatus,
-                // SteamExternalId — шукаємо по Slug, без хардкоду ShopId
-                g.GameExternalIds
-                    .Where(e => e.Shop.Slug == "steam")
-                    .Select(e => e.ExternalId)
-                    .FirstOrDefault(),
                 gameIdsWithPrice.Contains(g.GameId),
                 g.GameExternalIds
                     .SelectMany(e => e.GameOffers)

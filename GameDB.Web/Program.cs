@@ -1,21 +1,27 @@
-using Microsoft.AspNetCore.Authentication;
-using Serilog;
+using GameDB.Application.Interfaces;
+using GameDB.Application.Options;
 using GameDB.Application.Services;
 using GameDB.Application.Services.Import;
-using GameDB.Application.Options;
-using GameDB.Application.Interfaces;
+using GameDB.Infrastructure.Catalog;
 using GameDB.Infrastructure.Data;
-using GameDB.Infrastructure.Steam;
-using Microsoft.EntityFrameworkCore;
 using GameDB.Infrastructure.Data.Repositories;
 using GameDB.Infrastructure.ExternalProviders;
-using Microsoft.AspNetCore.Authentication.Cookies;
-using GameDB.Infrastructure.Catalog;
 using GameDB.Infrastructure.Http;
-using GameDB.Infrastructure.Workers;
-// Bootstrap-логер
+using GameDB.Infrastructure.Steam;
+using Hangfire;
+using Hangfire.PostgreSql;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.EntityFrameworkCore;
+using Serilog;
+
 Log.Logger = new LoggerConfiguration()
-    .WriteTo.Console()
+    .MinimumLevel.Information()
+    // ЦЕЙ ФІЛЬТР ПРИБЕРЕ SQL-ЗАПИТИ З КОНСОЛІ
+    .Filter.ByExcluding(logEvent => 
+        logEvent.Properties.ContainsKey("SourceContext") && 
+        logEvent.Properties["SourceContext"].ToString().Contains("Microsoft.EntityFrameworkCore.Database.Command"))
+    .WriteTo.Console(outputTemplate: "[{Timestamp:HH:mm:ss} {Level:u3}] {Message:lj}{NewLine}{Exception}")
     .CreateBootstrapLogger();
 
 try
@@ -26,7 +32,7 @@ try
 
     // ── Razor Pages + Controllers ────────────────────────────────────────────
     builder.Services.AddRazorPages();
-    builder.Services.AddMemoryCache(); // кеш для CatalogSidebar та інших даних
+    builder.Services.AddMemoryCache();
     builder.Services.AddControllers()
         .AddJsonOptions(o =>
             o.JsonSerializerOptions.Converters.Add(
@@ -43,30 +49,43 @@ try
             options.AccessDeniedPath = "/Auth/Login";
             options.Cookie.HttpOnly  = true;
             options.Cookie.SameSite  = SameSiteMode.Lax;
-            // HTTPS-only у Production
             options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
             options.SlidingExpiration = true;
             options.ExpireTimeSpan    = TimeSpan.FromDays(7);
         });
 
     builder.Services.AddAuthorization(options =>
-{
-    // Дозволяємо гостям і авторизованим
-    options.AddPolicy("GuestOrUser", policy =>
-        policy.RequireAssertion(ctx =>
-            ctx.User.Identity?.IsAuthenticated == true));
+    {
+        options.AddPolicy("GuestOrUser", policy =>
+            policy.RequireAssertion(ctx =>
+                ctx.User.Identity?.IsAuthenticated == true));
 
-    // Тільки зареєстровані (не гості)
-    options.AddPolicy("RegisteredOnly", policy =>
-        policy.RequireRole("User"));
+        options.AddPolicy("RegisteredOnly", policy =>
+            policy.RequireRole("User"));
 
-    options.AddPolicy("AdminOnly", policy =>
-        policy.RequireRole(GameDB.Web.Services.AuthCookieService.AdminRole));
-});
+        options.AddPolicy("AdminOnly", policy =>
+            policy.RequireRole(GameDB.Web.Services.AuthCookieService.AdminRole));
+    });
 
     // ── База даних ───────────────────────────────────────────────────────────
     builder.Services.AddDbContext<AppDbContext>(options =>
-        options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
+        options.UseNpgsql("Host=localhost;Port=5432;Database=mygamedb;Username=postgres;Password=postgres"));
+
+    // ── Hangfire ─────────────────────────────────────────────────────────────
+    builder.Services.AddHangfire(configuration => configuration
+        .SetDataCompatibilityLevel(CompatibilityLevel.Version_180)
+        .UseSimpleAssemblyNameTypeSerializer()
+        .UseRecommendedSerializerSettings()
+        .UsePostgreSqlStorage(c => c.UseNpgsqlConnection("Host=localhost;Port=5432;Database=mygamedb;Username=postgres;Password=postgres"),
+        new PostgreSqlStorageOptions
+        {
+            // Збільшуємо таймаут для тривалих задач
+            InvisibilityTimeout = TimeSpan.FromHours(5) 
+        }));
+    builder.Services.AddHangfireServer();
+    builder.Services.AddSingleton<BasicImportOperationState>();
+    builder.Services.AddSingleton<EnrichmentOperationState>();
+    builder.Services.AddSingleton<PriceSyncOperationState>();
 
     // ── Репозиторії ──────────────────────────────────────────────────────────
     builder.Services.AddScoped<IGameRepository, GameRepository>();
@@ -82,42 +101,30 @@ try
     builder.Services.AddHttpClient<SteamOpenIdService>();
 
     // ── Зовнішні HTTP-клієнти ────────────────────────────────────────────────
-// ISteamClient залишається без змін (OAuth + UserLibrary, не імпорт)
     builder.Services.AddHttpClient<ISteamClient, SteamClient>();
 
-// Всі store-клієнти з єдиним Polly pipeline
     builder.Services
-    .AddHttpClient<GameDB.Application.Interfaces.ISteamSpyClient,
-                   GameDB.Infrastructure.ExternalProviders.SteamSpyClient>()
-    .AddStoreProviderResiliency("steamspy");
+        .AddHttpClient<GameDB.Application.Interfaces.ISteamSpyClient, GameDB.Infrastructure.ExternalProviders.SteamSpyClient>()
+        .AddStoreProviderResiliency("steamspy");
 
-builder.Services
-    .AddHttpClient<GameDB.Application.Interfaces.IGogClient,
-                   GameDB.Infrastructure.ExternalProviders.GogClient>()
-    .AddStoreProviderResiliency("gog");
+    builder.Services
+        .AddHttpClient<GameDB.Application.Interfaces.IGogClient, GameDB.Infrastructure.ExternalProviders.GogClient>()
+        .AddStoreProviderResiliency("gog");
 
-builder.Services
-    .AddHttpClient<GameDB.Application.Interfaces.IEGDataClient,
-                   GameDB.Infrastructure.ExternalProviders.EGDataClient>()
-    .AddStoreProviderResiliency("egdata");
+    builder.Services
+        .AddHttpClient<GameDB.Application.Interfaces.IEGDataClient, GameDB.Infrastructure.ExternalProviders.EGDataClient>()
+        .AddStoreProviderResiliency("egdata");
 
-// ── Store providers & import ─────────────────────────────────────────────
-builder.Services.Configure<GameDB.Application.Options.StoreImportOptions>(
-    builder.Configuration.GetSection("StoreImport"));
-builder.Services.Configure<GameDB.Application.Options.GogImportOptions>(
-    builder.Configuration.GetSection("Gog"));
-builder.Services.Configure<GameDB.Application.Options.EGDataImportOptions>(
-    builder.Configuration.GetSection("EGData"));
+    // ── Store providers & import ─────────────────────────────────────────────
+    builder.Services.Configure<GameDB.Application.Options.StoreImportOptions>(builder.Configuration.GetSection("StoreImport"));
+    builder.Services.Configure<GameDB.Application.Options.GogImportOptions>(builder.Configuration.GetSection("Gog"));
+    builder.Services.Configure<GameDB.Application.Options.EGDataImportOptions>(builder.Configuration.GetSection("EGData"));
 
-// Провайдери реєструються як IStoreProvider (порядок = порядок обходу в workers)
-builder.Services.AddScoped<GameDB.Application.Interfaces.IStoreProvider,
-    GameDB.Infrastructure.Providers.SteamStoreProvider>();
-builder.Services.AddScoped<GameDB.Application.Interfaces.IStoreProvider,
-    GameDB.Infrastructure.Providers.GogStoreProvider>();
-builder.Services.AddScoped<GameDB.Application.Interfaces.IStoreProvider,
-    GameDB.Infrastructure.Providers.EGDataStoreProvider>();
+    builder.Services.AddScoped<GameDB.Application.Interfaces.IStoreProvider, GameDB.Infrastructure.Providers.SteamStoreProvider>();
+    builder.Services.AddScoped<GameDB.Application.Interfaces.IStoreProvider, GameDB.Infrastructure.Providers.GogStoreProvider>();
+    builder.Services.AddScoped<GameDB.Application.Interfaces.IStoreProvider, GameDB.Infrastructure.Providers.EGDataStoreProvider>();
 
-// ── Бізнес-сервіси ───────────────────────────────────────────────────────
+    // ── Бізнес-сервіси ───────────────────────────────────────────────────────
     builder.Services.AddScoped<IPriceManagerService, PriceManagerService>();
     builder.Services.AddSingleton<SteamGameFilter>();
     builder.Services.AddScoped<IBasicImportService, BasicImportService>();
@@ -125,12 +132,7 @@ builder.Services.AddScoped<GameDB.Application.Interfaces.IStoreProvider,
     builder.Services.AddScoped<GameDB.Application.Services.Import.BasicImportService>();
     builder.Services.AddScoped<IPriceSyncService, PriceSyncService>();
     builder.Services.AddScoped<StoreGameMapper>();
-    builder.Services.AddSingleton<ImportOperationState>();
-    builder.Services.AddHostedService<GameEnrichmentWorker>();
-    builder.Services.AddHostedService<PriceSyncWorker>();
-    builder.Services.AddHostedService<AlertCheckerHostedService>();
-// ─────────────────────────────────────────────────────────────────────────
-
+    
     builder.Services.AddScoped<ICatalogService, CatalogService>();
     builder.Services.AddScoped<IUserCollectionService, UserCollectionService>();
     builder.Services.AddScoped<INotificationRepository, NotificationRepository>();
@@ -142,23 +144,12 @@ builder.Services.AddScoped<GameDB.Application.Interfaces.IStoreProvider,
     builder.Services.AddScoped<GameDB.Web.Services.AuthCookieService>();
     builder.Services.AddScoped<GameDB.Web.Services.SteamPlayerService>();
     builder.Services.AddHttpClient();
-    
 
-    // ── Background Workers ───────────────────────────────────────────────────
-
-    builder.Services.AddHostedService<GameDB.Infrastructure.Services.AlertCheckerHostedService>();
-
-    // ── Налаштування ─────────────────────────────────────────────────────────
     builder.Services.Configure<SteamSpyImportOptions>(builder.Configuration.GetSection("SteamSpy"));
-    builder.Services.Configure<GameDB.Application.Options.AdminOptions>(
-        builder.Configuration.GetSection("Admin"));
+    builder.Services.Configure<GameDB.Application.Options.AdminOptions>(builder.Configuration.GetSection("Admin"));
 
-    // ── Serilog ──────────────────────────────────────────────────────────────
-    builder.Host.UseSerilog((context, services, configuration) => configuration
-        .ReadFrom.Configuration(context.Configuration)
-        .ReadFrom.Services(services));
+    builder.Services.AddSerilog();
 
-    // ════════════════════════════════════════════════════════════════════════
     var app = builder.Build();
 
     if (app.Environment.IsDevelopment())
@@ -168,36 +159,25 @@ builder.Services.AddScoped<GameDB.Application.Interfaces.IStoreProvider,
             var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
             await db.Database.MigrateAsync();
         }
-
         app.UseSwagger();
-        app.UseSwaggerUI(c =>
-            c.SwaggerEndpoint("/swagger/v1/swagger.json", "GameDB API V1"));
+        app.UseSwaggerUI(c => c.SwaggerEndpoint("/swagger/v1/swagger.json", "GameDB API V1"));
     }
 
     app.UseHttpsRedirection();
     app.UseStaticFiles();
     app.UseRouting();
 
-    app.UseAuthentication(); // ← ПЕРЕД UseAuthorization
+    app.UseAuthentication();
     app.UseAuthorization();
 
     app.UseSerilogRequestLogging();
 
     app.MapControllers();
+    app.UseHangfireDashboard();
     app.MapRazorPages();
 
     app.Run();
 }
-catch (HostAbortedException)
-{
-    // Нормально при dotnet ef database update / migrations — design-time host
-    throw;
-}
-catch (Exception ex)
-{
-    Log.Fatal(ex, "Сервер впав через критичну помилку!");
-}
-finally
-{
-    Log.CloseAndFlush();
-}
+catch (HostAbortedException) { throw; }
+catch (Exception ex) { Log.Fatal(ex, "Сервер впав!"); }
+finally { Log.CloseAndFlush(); }

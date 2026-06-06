@@ -11,6 +11,7 @@ public interface IGameRepository
     Task<int>        GetTotalGamesCountAsync(CancellationToken ct = default);
     Task<List<Game>> GetGamesBatchAsync(int skip, int take, CancellationToken ct = default);
     Task<List<Game>> GetGamesBatchFromShopAsync(int skip, int take, int shopId, CancellationToken ct = default);
+    Task<List<Game>> GetGamesByExternalIdsBatchAsync(int shopId, IReadOnlyCollection<string> externalIds, CancellationToken ct = default);
     Task<int>        GetGamesNotSyncedSinceCountAsync(DateTime since, CancellationToken ct = default);
     Task<List<Game>> GetGamesNotSyncedSinceBatchAsync(DateTime since, int skip, int take, CancellationToken ct = default);
 
@@ -22,9 +23,10 @@ public interface IGameRepository
         int shopId, IReadOnlyCollection<string> candidates, CancellationToken ct = default);
 
     Task<List<string>> GetExternalIdsByStatusAsync(int shopId, GameImportStatus status, int count, CancellationToken ct = default);
+    Task<List<string>> GetExternalIdsByStatusAsync(int shopId, GameImportStatus status, CancellationToken ct = default);
     Task<int>          GetExternalIdsByStatusAsyncCount(int shopId, GameImportStatus status, CancellationToken ct = default);
     Task<List<string>> GetExternalIdsBatchAsync(int shopId, int skip, int take, CancellationToken ct = default);
-
+    
     // ── Запис ────────────────────────────────────────────────────────────────
     Task AddAsync(Game game, CancellationToken ct = default);
     Task BulkAddAsync(IReadOnlyCollection<Game> games, CancellationToken ct = default);

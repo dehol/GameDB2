@@ -47,7 +47,26 @@ public sealed partial class GameRepository(AppDbContext db) : IGameRepository
             .Take(take)
             .ToListAsync(ct);
 
+    public Task<List<Game>> GetGamesByExternalIdsBatchAsync(
+    int shopId, 
+    IReadOnlyCollection<string> externalIds, 
+    CancellationToken ct = default)
+    {
+        if (externalIds == null || externalIds.Count == 0)
+        {
+            return Task.FromResult(new List<Game>());
+        }
 
+        return db.Games
+            // Обов'язково підвантажуємо колекцію ідентифікаторів, 
+            // оскільки сервіс працює з g.GameExternalIds у пам'яті
+            .Include(g => g.GameExternalIds) 
+            // Якщо у mapper.ApplyAsync вам потрібні також жанри чи теги, розкоментуйте рядки нижче:
+            // .Include(g => g.Genres)
+            // .Include(g => g.Tags)
+            .Where(g => g.GameExternalIds.Any(e => e.ShopId == shopId && externalIds.Contains(e.ExternalId)))
+            .ToListAsync(ct);
+    }
     // ── Not-synced-since ─────────────────────────────────────────────────────
 
     /// <summary>
@@ -99,6 +118,13 @@ public sealed partial class GameRepository(AppDbContext db) : IGameRepository
             .Include(e => e.Game)
             .Where(e => e.ShopId == shopId && e.Game.ImportStatus == status)
             .OrderBy(e => e.GameId).Take(count)
+            .Select(e => e.ExternalId).ToListAsync(ct);
+    public Task<List<string>> GetExternalIdsByStatusAsync(
+        int shopId, GameImportStatus status, CancellationToken ct = default)
+        => db.Set<GameExternalId>()
+            .Include(e => e.Game)
+            .Where(e => e.ShopId == shopId && e.Game.ImportStatus == status)
+            .OrderBy(e => e.GameId)
             .Select(e => e.ExternalId).ToListAsync(ct);
 
     public Task<int> GetExternalIdsByStatusAsyncCount(
