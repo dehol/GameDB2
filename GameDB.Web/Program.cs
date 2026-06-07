@@ -76,13 +76,24 @@ try
         .SetDataCompatibilityLevel(CompatibilityLevel.Version_180)
         .UseSimpleAssemblyNameTypeSerializer()
         .UseRecommendedSerializerSettings()
-        .UsePostgreSqlStorage(c => c.UseNpgsqlConnection("Host=localhost;Port=5432;Database=mygamedb;Username=postgres;Password=postgres"),
-        new PostgreSqlStorageOptions
-        {
-            // Збільшуємо таймаут для тривалих задач
-            InvisibilityTimeout = TimeSpan.FromHours(5) 
-        }));
-    builder.Services.AddHangfireServer();
+        .UsePostgreSqlStorage(
+            c => c.UseNpgsqlConnection("Host=localhost;Port=5432;Database=mygamedb;Username=postgres;Password=postgres"),
+            new PostgreSqlStorageOptions
+            {
+                InvisibilityTimeout = TimeSpan.FromHours(8),
+ 
+                QueuePollInterval = TimeSpan.FromSeconds(15),
+ 
+                JobExpirationCheckInterval = TimeSpan.FromHours(1),
+            }));
+ 
+    builder.Services.AddHangfireServer(options =>
+    {
+        options.WorkerCount = 5;
+ 
+        options.ShutdownTimeout = TimeSpan.FromMinutes(5);
+    });
+ 
     builder.Services.AddSingleton<BasicImportOperationState>();
     builder.Services.AddSingleton<EnrichmentOperationState>();
     builder.Services.AddSingleton<PriceSyncOperationState>();
@@ -91,6 +102,8 @@ try
     builder.Services.AddScoped<IGameRepository, GameRepository>();
     builder.Services.AddScoped<IGameOfferRepository, GameOfferRepository>();
     builder.Services.AddScoped<IAlertRepository, AlertRepository>();
+    builder.Services.AddScoped<IGameAlertRepository, GameAlertRepository>();
+    builder.Services.AddScoped<IGameAlertService, GameAlertService>();
     builder.Services.AddScoped<GameDB.Application.Interfaces.IUserRepository, UserRepository>();
     builder.Services.AddScoped<GameDB.Application.Interfaces.ICatalogRepository, CatalogRepository>();
     builder.Services.AddScoped<GameDB.Application.Interfaces.IUserCollectionRepository, UserCollectionRepository>();
