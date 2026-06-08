@@ -52,6 +52,8 @@ public partial class AppDbContext : DbContext
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.HasPostgresExtension("vector");
+
         modelBuilder.Entity<Alert>(entity =>
         {
             entity.ToTable("Alert");
@@ -130,6 +132,12 @@ public partial class AppDbContext : DbContext
                         j.ToTable("GameTag");
                         j.HasIndex(new[] { "TagId" }, "IX_GameTag_TagId");
                     });
+            entity.Property(e => e.Embedding)
+                .HasColumnType("vector(384)");
+
+            entity.HasIndex(e => e.Embedding)
+                .HasMethod("hnsw")
+                .HasOperators("vector_cosine_ops");
         });
 
         modelBuilder.Entity<GameExternalId>(entity =>

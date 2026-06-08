@@ -257,6 +257,37 @@ public sealed class CatalogRepository(AppDbContext db) : ICatalogRepository
             ImportStatus:  game.ImportStatus);
     }
 
+    // ─── Графік цін ──────────────────────────────────────────────────────────
+
+    public async Task<List<ShopPriceHistoryDto>> GetPriceHistoryAsync(
+        int gameId, CancellationToken ct = default)
+    {
+        // Завантажуємо всі GameOffer для цієї гри разом з їхньою PriceHistory.
+        // GameOffer → External (GameExternalId) → GameId фільтрує по грі;
+        // Shop дає назву магазину.
+        var offers = await db.GameOffers
+            .AsNoTracking()
+            .Where(o => o.External.GameId == gameId)
+            .Include(o => o.External).ThenInclude(e => e.Shop)
+            .Include(o => o.PriceHistories)
+            .ToListAsync(ct);
+
+        return offers
+            .Where(o => o.PriceHistories.Count > 0)
+            .Select(o => new ShopPriceHistoryDto(
+                GameOfferId: o.GameOfferId,
+                ShopName:    o.External.Shop?.Name ?? "Unknown",
+                Points: o.PriceHistories
+                    .OrderBy(ph => ph.RecordedAt)
+                    .Select(ph => new PriceHistoryPointDto(
+                        RecordedAt:      ph.RecordedAt,
+                        Price:           ph.Price,
+                        DiscountPercent: ph.DiscountPercent,
+                        Currency:        ph.Currency))
+                    .ToList()))
+            .ToList();
+    }
+
     // ─── Private helper ───────────────────────────────────────────────────────
 
     private static CatalogGameDto MapToCard(Game game)

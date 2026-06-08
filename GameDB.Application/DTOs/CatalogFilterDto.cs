@@ -118,3 +118,18 @@ public record CatalogResultDto(
     int PageSize,
     int TotalPages
 );
+
+// ─── Історія цін (для графіка на сторінці деталей) ───────────────────────
+
+public record PriceHistoryPointDto(
+    DateTime RecordedAt,
+    decimal  Price,
+    int      DiscountPercent,
+    string   Currency
+);
+
+public record ShopPriceHistoryDto(
+    int                       GameOfferId,
+    string                    ShopName,
+    List<PriceHistoryPointDto> Points
+);

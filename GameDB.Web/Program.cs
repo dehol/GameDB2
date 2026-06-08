@@ -69,7 +69,7 @@ try
 
     // ── База даних ───────────────────────────────────────────────────────────
     builder.Services.AddDbContext<AppDbContext>(options =>
-        options.UseNpgsql("Host=localhost;Port=5432;Database=mygamedb;Username=postgres;Password=postgres"));
+        options.UseNpgsql("Host=localhost;Port=5432;Database=mygamedb;Username=postgres;Password=postgres", o => o.UseVector()));
 
     // ── Hangfire ─────────────────────────────────────────────────────────────
     builder.Services.AddHangfire(configuration => configuration

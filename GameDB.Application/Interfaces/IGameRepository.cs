@@ -31,6 +31,7 @@ public interface IGameRepository
     Task AddAsync(Game game, CancellationToken ct = default);
     Task BulkAddAsync(IReadOnlyCollection<Game> games, CancellationToken ct = default);
     Task UpdateAsync(Game game, CancellationToken ct = default);
+    Task UpdateBatchAsync(IReadOnlyCollection<Game> games, CancellationToken ct = default);
     Task DeleteAsync(int gameId, CancellationToken ct = default);
 
     /// <summary>

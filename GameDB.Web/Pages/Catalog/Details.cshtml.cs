@@ -31,6 +31,7 @@ public class DetailsModel : PageModel
     public GameCollectionStateDto? Collection { get; private set; }
     public GamePriceAlertContextDto? AlertContext { get; private set; }
     public bool IsRegisteredUser { get; private set; }
+    public List<ShopPriceHistoryDto> PriceHistory { get; private set; } = [];
 
     [BindProperty] public decimal TargetPrice { get; set; }
     [BindProperty] public bool AutoUpdate { get; set; }
@@ -103,6 +104,7 @@ public class DetailsModel : PageModel
             return NotFound();
 
         Game = game;
+        PriceHistory = await _catalog.GetPriceHistoryAsync(id);
         IsRegisteredUser = User.IsInRole("User");
 
         if (IsRegisteredUser && TryGetUserId(out var userId))

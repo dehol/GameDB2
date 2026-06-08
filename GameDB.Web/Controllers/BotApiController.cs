@@ -1,10 +1,11 @@
+using System.Numerics;
 using GameDB.Application.DTOs;
 using GameDB.Application.Interfaces;
 using GameDB.Domain.Entities;
 using GameDB.Infrastructure.Data;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-
+using Pgvector;
 namespace GameDB.Web.Controllers;
 
 /// <summary>
@@ -251,17 +252,15 @@ public sealed class BotApiController(
 
     // ── 6. Рекомендації з ваговим скорингом ───────────────────────────────────
 
+    // ── 6. Рекомендації з ваговим скорингом ───────────────────────────────────
+
     /// <summary>
     /// Повертає схожі ігри на основі вагового скорингу по тегах і жанрах.
-    /// Параметри:
-    ///   referenceGameId — «схоже на цю гру» (береться базовий набір тегів/жанрів);
-    ///   boostTags/boostGenres — підвищений вага при скорингу;
-    ///   excludeTags/excludeGenres — жорстке виключення з результатів;
-    ///   requiredGenres/requiredTags — гра ОБОВ'ЯЗКОВО повинна мати ці жанри/теги.
     /// </summary>
     [HttpGet("catalog/recommend")]
     public async Task<IActionResult> GetRecommendations(
-        [FromQuery] int?     referenceGameId,
+        [FromQuery] string?  referenceGameIds,
+        [FromQuery] string?  excludeGameIds,   // ← НОВЕ: список ігор для жорсткого ігнору (наприклад, вже куплені)
         [FromQuery] string?  boostTags,
         [FromQuery] string?  boostGenres,
         [FromQuery] string?  excludeTags,
@@ -288,24 +287,47 @@ public sealed class BotApiController(
         var reqTagSet       = Csv(reqiredTags);
         var reqGenreSet     = Csv(reqiredGenres);
 
-        // ── Крок 1: базові теги/жанри з референсної гри ──────────────────────
+        // ── Крок 1: базові теги/жанри з референсних ігор ──────────────────────
 
         var baseTagNames   = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var baseGenreNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        if (referenceGameId.HasValue)
+        var refGameIds = new List<int>();
+        if (!string.IsNullOrWhiteSpace(referenceGameIds))
         {
-            var refGame = await db.Set<Game>()
+            refGameIds = referenceGameIds.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Select(s => int.TryParse(s, out var id) ? id : (int?)null)
+                .Where(id => id.HasValue)
+                .Select(id => id!.Value)
+                .ToList();
+        }
+
+        if (refGameIds.Count > 0)
+        {
+            var refGames = await db.Set<Game>()
                 .Include(g => g.Tags)
                 .Include(g => g.Genres)
                 .AsNoTracking()
-                .FirstOrDefaultAsync(g => g.GameId == referenceGameId.Value, ct);
+                .Where(g => refGameIds.Contains(g.GameId))
+                .ToListAsync(ct);
 
-            if (refGame is not null)
+            foreach (var refGame in refGames)
             {
                 foreach (var tag   in refGame.Tags)   baseTagNames.Add(tag.Name);
                 foreach (var genre in refGame.Genres)  baseGenreNames.Add(genre.Name);
             }
+        }
+
+        // ── Крок 1.Б: Парсинг ігор для виключення (Куплені/Owned) ──────────────
+
+        var exGameIds = new List<int>(); // ← НОВЕ
+        if (!string.IsNullOrWhiteSpace(excludeGameIds))
+        {
+            exGameIds = excludeGameIds.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Select(s => int.TryParse(s, out var id) ? id : (int?)null)
+                .Where(id => id.HasValue)
+                .Select(id => id!.Value)
+                .ToList();
         }
 
         var allTargetTagNames = baseTagNames
@@ -325,60 +347,36 @@ public sealed class BotApiController(
 
         if (allTargetTagNames.Count > 0)
         {
-            var dbTags = await db.Set<Tag>()
-                .Select(t => new { t.TagId, t.Name })
-                .ToListAsync(ct);
-
-            foreach (var r in dbTags.Where(t =>
-                allTargetTagNames.Any(n => t.Name.Contains(n, StringComparison.OrdinalIgnoreCase))))
+            var dbTags = await db.Set<Tag>().Select(t => new { t.TagId, t.Name }).ToListAsync(ct);
+            foreach (var r in dbTags.Where(t => allTargetTagNames.Any(n => t.Name.Contains(n, StringComparison.OrdinalIgnoreCase))))
             {
-                tagMap[r.TagId] = boostTagSet.Any(b =>
-                    r.Name.Contains(b, StringComparison.OrdinalIgnoreCase));
+                tagMap[r.TagId] = boostTagSet.Any(b => r.Name.Contains(b, StringComparison.OrdinalIgnoreCase));
             }
         }
 
         if (allTargetGenreNames.Count > 0)
         {
-            var dbGenres = await db.Set<Genre>()
-                .Select(g => new { g.GenreId, g.Name })
-                .ToListAsync(ct);
-
-            foreach (var r in dbGenres.Where(g =>
-                allTargetGenreNames.Any(n => g.Name.Contains(n, StringComparison.OrdinalIgnoreCase))))
+            var dbGenres = await db.Set<Genre>().Select(g => new { g.GenreId, g.Name }).ToListAsync(ct);
+            foreach (var r in dbGenres.Where(g => allTargetGenreNames.Any(n => g.Name.Contains(n, StringComparison.OrdinalIgnoreCase))))
             {
-                genreMap[r.GenreId] = boostGenreSet.Any(b =>
-                    r.Name.Contains(b, StringComparison.OrdinalIgnoreCase));
+                genreMap[r.GenreId] = boostGenreSet.Any(b => r.Name.Contains(b, StringComparison.OrdinalIgnoreCase));
             }
         }
 
-        // ── Крок 3: ID для жорсткого виключення ──────────────────────────────
+        // ── Крок 3: ID для жорсткого виключення по тегах/жанрах ──────────────
 
         var excludeTagIds = new List<int>();
         if (excludeTagSet.Count > 0)
         {
-            var dbTags = await db.Set<Tag>()
-                .Select(t => new { t.TagId, t.Name })
-                .ToListAsync(ct);
-
-            excludeTagIds = dbTags
-                .Where(t => excludeTagSet.Any(n =>
-                    t.Name.Contains(n, StringComparison.OrdinalIgnoreCase)))
-                .Select(t => t.TagId)
-                .ToList();
+            var dbTags = await db.Set<Tag>().Select(t => new { t.TagId, t.Name }).ToListAsync(ct);
+            excludeTagIds = dbTags.Where(t => excludeTagSet.Any(n => t.Name.Contains(n, StringComparison.OrdinalIgnoreCase))).Select(t => t.TagId).ToList();
         }
 
         var excludeGenreIds = new List<int>();
         if (excludeGenreSet.Count > 0)
         {
-            var dbGenres = await db.Set<Genre>()
-                .Select(g => new { g.GenreId, g.Name })
-                .ToListAsync(ct);
-
-            excludeGenreIds = dbGenres
-                .Where(g => excludeGenreSet.Any(n =>
-                    g.Name.Contains(n, StringComparison.OrdinalIgnoreCase)))
-                .Select(g => g.GenreId)
-                .ToList();
+            var dbGenres = await db.Set<Genre>().Select(g => new { g.GenreId, g.Name }).ToListAsync(ct);
+            excludeGenreIds = dbGenres.Where(g => excludeGenreSet.Any(n => g.Name.Contains(n, StringComparison.OrdinalIgnoreCase))).Select(g => g.GenreId).ToList();
         }
 
         // ── Крок 4: ID для обов'язкових тегів/жанрів (required) ──────────────
@@ -386,29 +384,15 @@ public sealed class BotApiController(
         var requiredTagIds = new List<int>();
         if (reqTagSet.Count > 0)
         {
-            var dbTags = await db.Set<Tag>()
-                .Select(t => new { t.TagId, t.Name })
-                .ToListAsync(ct);
-
-            requiredTagIds = dbTags
-                .Where(t => reqTagSet.Any(n =>
-                    t.Name.Contains(n, StringComparison.OrdinalIgnoreCase)))
-                .Select(t => t.TagId)
-                .ToList();
+            var dbTags = await db.Set<Tag>().Select(t => new { t.TagId, t.Name }).ToListAsync(ct);
+            requiredTagIds = dbTags.Where(t => reqTagSet.Any(n => t.Name.Contains(n, StringComparison.OrdinalIgnoreCase))).Select(t => t.TagId).ToList();
         }
 
         var requiredGenreIds = new List<int>();
         if (reqGenreSet.Count > 0)
         {
-            var dbGenres = await db.Set<Genre>()
-                .Select(g => new { g.GenreId, g.Name })
-                .ToListAsync(ct);
-
-            requiredGenreIds = dbGenres
-                .Where(g => reqGenreSet.Any(n =>
-                    g.Name.Contains(n, StringComparison.OrdinalIgnoreCase)))
-                .Select(g => g.GenreId)
-                .ToList();
+            var dbGenres = await db.Set<Genre>().Select(g => new { g.GenreId, g.Name }).ToListAsync(ct);
+            requiredGenreIds = dbGenres.Where(g => reqGenreSet.Any(n => g.Name.Contains(n, StringComparison.OrdinalIgnoreCase))).Select(g => g.GenreId).ToList();
         }
 
         limit = Math.Clamp(limit, 1, 20);
@@ -418,37 +402,27 @@ public sealed class BotApiController(
         IQueryable<Game> q = db.Set<Game>()
             .Include(g => g.Tags)
             .Include(g => g.Genres)
-            .Include(g => g.GameExternalIds)
-                .ThenInclude(ge => ge.GameOffers)
-            .Include(g => g.GameExternalIds)
-                .ThenInclude(ge => ge.Shop)
+            .Include(g => g.GameExternalIds).ThenInclude(ge => ge.GameOffers)
+            .Include(g => g.GameExternalIds).ThenInclude(ge => ge.Shop)
             .AsNoTracking();
 
-        if (referenceGameId.HasValue)
-            q = q.Where(g => g.GameId != referenceGameId.Value);
+        // Виключаємо ігри-референси з видачі
+        if (refGameIds.Count > 0)
+            q = q.Where(g => !refGameIds.Contains(g.GameId));
 
-        // Жорстке виключення
-        if (excludeTagIds.Count > 0)
-            q = q.Where(g => !g.Tags.Any(t => excludeTagIds.Contains(t.TagId)));
+        // Жорстке виключення вже куплених ігор користувача (Owned Games)
+        if (exGameIds.Count > 0) // ← НОВЕ
+            q = q.Where(g => !exGameIds.Contains(g.GameId));
 
-        if (excludeGenreIds.Count > 0)
-            q = q.Where(g => !g.Genres.Any(gg => excludeGenreIds.Contains(gg.GenreId)));
+        // Фільтрація за небажаними тегами/жанрами
+        if (excludeTagIds.Count > 0) q = q.Where(g => !g.Tags.Any(t => excludeTagIds.Contains(t.TagId)));
+        if (excludeGenreIds.Count > 0) q = q.Where(g => !g.Genres.Any(gg => excludeGenreIds.Contains(gg.GenreId)));
 
-        // Обов'язкові теги: гра ПОВИННА мати кожен з них (AND по кожному тегу)
-        foreach (var reqTagId in requiredTagIds)
-        {
-            var id = reqTagId;
-            q = q.Where(g => g.Tags.Any(t => t.TagId == id));
-        }
+        // Обов'язкові фільтри (AND)
+        foreach (var reqTagId in requiredTagIds) { var id = reqTagId; q = q.Where(g => g.Tags.Any(t => t.TagId == id)); }
+        foreach (var reqGenreId in requiredGenreIds) { var id = reqGenreId; q = q.Where(g => g.Genres.Any(gg => gg.GenreId == id)); }
 
-        // Обов'язкові жанри: гра ПОВИННА мати кожен з них (AND по кожному жанру)
-        foreach (var reqGenreId in requiredGenreIds)
-        {
-            var id = reqGenreId;
-            q = q.Where(g => g.Genres.Any(gg => gg.GenreId == id));
-        }
-
-        // Інші фільтри
+        // Цінові фільтри та рейтинг
         if (isFree.HasValue)
         {
             q = isFree.Value
@@ -456,22 +430,14 @@ public sealed class BotApiController(
                 : q.Where(g => g.GameExternalIds.Any(ge => ge.GameOffers.Any(o => o.FinalPrice > 0)));
         }
 
-        if (minRating.HasValue)
-            q = q.Where(g => g.Rating >= (double)minRating.Value);
+        if (minRating.HasValue) q = q.Where(g => g.Rating >= (double)minRating.Value);
+        if (maxPrice.HasValue) q = q.Where(g => g.GameExternalIds.Any(ge => ge.GameOffers.Any(o => o.FinalPrice > 0 && o.FinalPrice <= maxPrice.Value)));
 
-        if (maxPrice.HasValue)
-            q = q.Where(g => g.GameExternalIds.Any(ge =>
-                ge.GameOffers.Any(o => o.FinalPrice > 0 && o.FinalPrice <= maxPrice.Value)));
-
-        // Якщо є теги/жанри для скорингу — обмежуємо кандидатів лише тими,
-        // хто хоча б частково збігається (інакше береться весь каталог)
         if (tagMap.Count > 0 || genreMap.Count > 0)
         {
             var targetTagIds   = tagMap.Keys.ToList();
             var targetGenreIds = genreMap.Keys.ToList();
-            q = q.Where(g =>
-                g.Tags.Any(t   => targetTagIds.Contains(t.TagId)) ||
-                g.Genres.Any(gg => targetGenreIds.Contains(gg.GenreId)));
+            q = q.Where(g => g.Tags.Any(t => targetTagIds.Contains(t.TagId)) || g.Genres.Any(gg => targetGenreIds.Contains(gg.GenreId)));
         }
 
         var candidates = await q.Take(300).ToListAsync(ct);
@@ -488,18 +454,9 @@ public sealed class BotApiController(
             .Select(g =>
             {
                 var score = 0.0;
-
-                foreach (var tag in g.Tags)
-                    if (tagMap.TryGetValue(tag.TagId, out var tagBoosted))
-                        score += tagBoosted ? W_TAG_BOOST : W_TAG_BASE;
-
-                foreach (var genre in g.Genres)
-                    if (genreMap.TryGetValue(genre.GenreId, out var genreBoosted))
-                        score += genreBoosted ? W_GENRE_BOOST : W_GENRE_BASE;
-
-                if (g.Rating > 0)
-                    score += g.Rating.Value * W_RATING;
-
+                foreach (var tag in g.Tags) if (tagMap.TryGetValue(tag.TagId, out var b)) score += b ? W_TAG_BOOST : W_TAG_BASE;
+                foreach (var genre in g.Genres) if (genreMap.TryGetValue(genre.GenreId, out var b)) score += b ? W_GENRE_BOOST : W_GENRE_BASE;
+                if (g.Rating > 0) score += g.Rating.Value * W_RATING;
                 return (Game: g, Score: score);
             })
             .Where(x => x.Score > 0)
@@ -510,13 +467,8 @@ public sealed class BotApiController(
         return Ok(scored.Select(x =>
         {
             var g = x.Game;
-
             var bestOfferData = g.GameExternalIds
-                .SelectMany(ge => ge.GameOffers.Select(o => new
-                {
-                    Offer    = o,
-                    ShopName = ge.Shop?.Name,   // FIX: null-safe
-                }))
+                .SelectMany(ge => ge.GameOffers.Select(o => new { Offer = o, ShopName = ge.Shop?.Name }))
                 .Where(od => od.Offer.FinalPrice.HasValue)
                 .MinBy(od => od.Offer.FinalPrice);
 
@@ -534,6 +486,50 @@ public sealed class BotApiController(
                 SimilarityScore = Math.Round(x.Score, 2),
             };
         }));
+    }
+
+    // ── 8. Збереження векторного ембеддінгу ──────────────────────────────────
+
+    /// <summary>
+    /// Отримує згенерований Python-скриптом вектор (embedding) і зберігає його в БД для гри.
+    /// </summary>
+    // ── 8. Збереження векторного ембеддінгу (pgvector) ──────────────────────
+
+    /// <summary>
+    /// Отримує згенерований Python-скриптом список float і зберігає як Pgvector.Vector.
+    /// </summary>
+    public record SaveEmbeddingRequest(List<float> Embedding);
+
+    [HttpPost("game/{gameId:int}/embedding")]
+    public async Task<IActionResult> SaveEmbedding(
+        int gameId,
+        [FromBody] SaveEmbeddingRequest req,
+        CancellationToken ct)
+    {
+        if (!IsAuthorized()) return Unauthorized();
+
+        if (req.Embedding == null || req.Embedding.Count == 0)
+            return BadRequest(new { error = "Вектор ембеддінгу не може бути порожнім." });
+
+        // Шукаємо гру в базі даних
+        var game = await db.Set<Game>()
+            .FirstOrDefaultAsync(g => g.GameId == gameId, ct);
+
+        if (game is null)
+            return NotFound(new { error = $"Гру GameId={gameId} не знайдено." });
+
+        // Перетворюємо List<float> з Python у структуру Pgvector.Vector
+        // Якщо у вас виникне помилка компіляції, перевірте чи підключено namespace (наприклад, за допомогою new Pgvector.Vector(...))
+        game.Embedding = new Pgvector.Vector(req.Embedding.ToArray()); 
+
+        // Зберігаємо зміни в БД
+        await db.SaveChangesAsync(ct);
+
+        return Ok(new
+        {
+            success = true,
+            message = $"Ембеддінг для гри #{gameId} ({game.Name}) успішно збережено в pgvector."
+        });
     }
 
     // ── 7. Створення / оновлення цінового алерту ──────────────────────────────

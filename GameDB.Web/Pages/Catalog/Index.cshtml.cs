@@ -38,11 +38,19 @@ public class IndexModel : PageModel
     [BindProperty(SupportsGet = true)] public bool?         IsFree      { get; set; }
     [BindProperty(SupportsGet = true)] public CatalogSortBy SortBy      { get; set; } = CatalogSortBy.Popularity;
     [BindProperty(SupportsGet = true)] public bool          SortDesc    { get; set; } = true;
-    [BindProperty(SupportsGet = true, Name = "page")] public int CurrentPage { get; set; } = 1;
     [BindProperty(SupportsGet = true)] public int           PageSize    { get; set; } = 24;
 
-    public async Task OnGetAsync()
+    // CurrentPage навмисно НЕ є [BindProperty].
+    // [BindProperty(Name = "page")] описує form-поле (POST body),
+    // а НЕ query-string параметр GET-запиту.
+    // Параметр хендлера `page` у OnGetAsync — єдиний надійний спосіб
+    // прочитати ?page=N із query string у Razor Pages.
+    public int CurrentPage { get; private set; } = 1;
+
+    // `page` прив'язується з ?page=N у query string автоматично.
+    public async Task OnGetAsync(int page = 1)
     {
+        CurrentPage = Math.Max(1, page);
         await LoadCatalogAsync();
     }
 
@@ -60,19 +68,18 @@ public class IndexModel : PageModel
             TempData["CollectionSuccess"] = "Видалено з wishlist.";
         });
 
-    public string PageUrl(int page) => Query.PageUrl(page);
-    public string SortUrl(CatalogSortBy sortBy) => Query.SortUrl(sortBy);
-    public string RemoveFilter(string key) => Query.Without(key);
-    public string RemoveFilters(params string[] keys) => Query.Without(keys);
-    public string RemoveGenre(int genreId) => Query.WithoutGenre(genreId);
-    public string CatalogReturnUrl() => Query.ToCatalogUrl();
+    public string PageUrl(int page)                   => Query.PageUrl(page);
+    public string SortUrl(CatalogSortBy sortBy)       => Query.SortUrl(sortBy);
+    public string RemoveFilter(string key)             => Query.Without(key);
+    public string RemoveFilters(params string[] keys)  => Query.Without(keys);
+    public string RemoveGenre(int genreId)             => Query.WithoutGenre(genreId);
+    public string CatalogReturnUrl()                   => Query.ToCatalogUrl();
 
     private async Task LoadCatalogAsync()
     {
         Query = BuildQuery();
         var filter = Query.ToFilterDto();
 
-        // Завантажуємо дані послідовно, щоб уникнути конфліктів паралелізму в DbContext
         Result  = await _catalog.GetCatalogAsync(filter);
         Sidebar = await _catalog.GetSidebarDataAsync();
 

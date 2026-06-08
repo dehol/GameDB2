@@ -130,3 +130,49 @@
 .game-description video { display: block; background: #1b2838; }
 .game-description br { line-height: 1.8; }
 .game-description h2 { font-size: 1.1rem; margin-top: 1rem; }
+
+/* ── Графік цін ─────────────────────────────────────────────────────── */
+.price-chart-card {
+    background: #fff;
+    border: 1px solid #dee2e6;
+    border-radius: 8px;
+    padding: 1.25rem 1.25rem .9rem;
+}
+.price-chart-tabs {
+    display: flex;
+    gap: .35rem;
+    flex-wrap: wrap;
+}
+.price-chart-tab {
+    font-size: .8rem;
+    padding: .28rem .75rem;
+    border-radius: 20px;
+    border: 1px solid #dee2e6;
+    background: #f8f9fa;
+    color: #495057;
+    cursor: pointer;
+    transition: background .1s, color .1s, border-color .1s;
+    line-height: 1.4;
+}
+.price-chart-tab:hover  { background: #e9ecef; }
+.price-chart-tab.active { background: #0d6efd; color: #fff; border-color: #0d6efd; }
+.price-chart-shop-label { font-weight: 600; }
+.price-chart-wrap {
+    position: relative;
+    height: 220px;
+}
+.price-chart-legend {
+    font-size: .72rem;
+    color: #6c757d;
+    display: flex;
+    align-items: center;
+    gap: .15rem;
+    flex-wrap: wrap;
+}
+.price-chart-legend-dot {
+    display: inline-block;
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}

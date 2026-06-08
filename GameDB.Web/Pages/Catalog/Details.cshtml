@@ -1,8 +1,12 @@
 @page "/Catalog/Details/{id:int}"
+@using System.Text.Json
 @model GameDB.Web.Pages.Catalog.DetailsModel
 @{
     var g = Model.Game;
     ViewData["Title"] = g.Name;
+
+    var _jsonOpts = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
+    var _priceJson = JsonSerializer.Serialize(Model.PriceHistory, _jsonOpts);
 }
 
 @section Styles {
@@ -197,6 +201,36 @@
   <partial name="_PriceAlertModal" model="Model.AlertContext" />
 }
 
+@if (Model.PriceHistory.Count > 0)
+{
+  <section class="mb-4">
+    <h2 class="h5 mb-3">Графік цін</h2>
+    <div class="price-chart-card">
+      @if (Model.PriceHistory.Count > 1)
+      {
+        <div class="price-chart-tabs mb-3">
+          @foreach (var (shop, i) in Model.PriceHistory.Select((s, i) => (s, i)))
+          {
+            <button class="price-chart-tab @(i == 0 ? "active" : "")"
+                    data-shop-index="@i" type="button">@shop.ShopName</button>
+          }
+        </div>
+      }
+      else
+      {
+        <p class="price-chart-shop-label mb-2 text-muted small">@Model.PriceHistory[0].ShopName</p>
+      }
+      <div class="price-chart-wrap">
+        <canvas id="priceChart"></canvas>
+      </div>
+      <p class="price-chart-legend mt-2 mb-0">
+        <span class="price-chart-legend-dot" style="background:#0d6efd"></span> Звичайна ціна &nbsp;
+        <span class="price-chart-legend-dot" style="background:#28a745"></span> Знижка
+      </p>
+    </div>
+  </section>
+}
+
 <p class="mt-4">
   <a href="/Catalog" class="btn btn-outline-secondary btn-sm">← Назад до каталогу</a>
 </p>
@@ -205,5 +239,11 @@
   @if (Model.IsRegisteredUser && Model.AlertContext is not null)
   {
     <script src="~/js/price-alert.js" asp-append-version="true"></script>
+  }
+  @if (Model.PriceHistory.Count > 0)
+  {
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js" crossorigin="anonymous"></script>
+    <script src="~/js/price-chart.js" asp-append-version="true"></script>
+    <script>initPriceChart(@Html.Raw(_priceJson));</script>
   }
 }

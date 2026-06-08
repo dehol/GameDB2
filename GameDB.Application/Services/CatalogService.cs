@@ -32,4 +32,7 @@ public class CatalogService : ICatalogService
 
     public Task<GameDetailDto?> GetGameDetailAsync(int gameId, CancellationToken ct = default)
         => _repo.GetDetailAsync(gameId, ct);
+
+    public Task<List<ShopPriceHistoryDto>> GetPriceHistoryAsync(int gameId, CancellationToken ct = default)
+        => _repo.GetPriceHistoryAsync(gameId, ct);
 }

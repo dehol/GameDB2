@@ -15,4 +15,6 @@ public interface ICatalogRepository
     Task<CatalogSidebarDto> GetSidebarDataAsync(CancellationToken ct = default);
 
     Task<GameDetailDto?> GetDetailAsync(int gameId, CancellationToken ct = default);
+
+    Task<List<ShopPriceHistoryDto>> GetPriceHistoryAsync(int gameId, CancellationToken ct = default);
 }

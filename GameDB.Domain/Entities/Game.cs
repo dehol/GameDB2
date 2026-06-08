@@ -1,5 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
+﻿using Pgvector;
 
 namespace GameDB.Domain.Entities;
 
@@ -30,6 +29,8 @@ public partial class Game
     public Enums.GameImportStatus ImportStatus { get; set; }
     
     public string NormalizedName { get; set; } = null!;
+
+    public Vector? Embedding { get; set; }
 
     public virtual ICollection<Alert> Alerts { get; set; } = new List<Alert>();
 

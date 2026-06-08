@@ -160,6 +160,11 @@ public sealed partial class GameRepository(AppDbContext db) : IGameRepository
         db.Games.Update(game);
         await db.SaveChangesAsync(ct);
     }
+    public async Task UpdateBatchAsync(IReadOnlyCollection<Game> games, CancellationToken ct = default)
+    {
+        db.Games.UpdateRange(games);
+        await db.SaveChangesAsync(ct);
+    }
 
     public async Task DeleteAsync(int gameId, CancellationToken ct = default)
         => await db.Games.Where(g => g.GameId == gameId).ExecuteDeleteAsync(ct);
