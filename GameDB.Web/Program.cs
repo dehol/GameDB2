@@ -69,7 +69,7 @@ try
 
     // ── База даних ───────────────────────────────────────────────────────────
     builder.Services.AddDbContext<AppDbContext>(options =>
-        options.UseNpgsql("Host=localhost;Port=5432;Database=mygamedb;Username=postgres;Password=postgres", o => o.UseVector()));
+        options.UseNpgsql("Host=localhost;Port=5432;Database=mygamedb;Username=postgres;Password=postgres"));
 
     // ── Hangfire ─────────────────────────────────────────────────────────────
     builder.Services.AddHangfire(configuration => configuration
@@ -118,15 +118,15 @@ try
 
     builder.Services
         .AddHttpClient<GameDB.Application.Interfaces.ISteamSpyClient, GameDB.Infrastructure.ExternalProviders.SteamSpyClient>()
-        .AddStoreProviderResiliency("steamspy");
+        .AddStoreProviderResiliency("steamspy", maxConcurrency: 2); // soft limit ~4 req/s
 
     builder.Services
         .AddHttpClient<GameDB.Application.Interfaces.IGogClient, GameDB.Infrastructure.ExternalProviders.GogClient>()
-        .AddStoreProviderResiliency("gog");
+        .AddStoreProviderResiliency("gog", maxConcurrency: 2);      // офіційний undocumented API
 
     builder.Services
         .AddHttpClient<GameDB.Application.Interfaces.IEGDataClient, GameDB.Infrastructure.ExternalProviders.EGDataClient>()
-        .AddStoreProviderResiliency("egdata");
+        .AddStoreProviderResiliency("egdata", maxConcurrency: 3);   // 2 HTTP-запити/гру — community API
 
     // ── Store providers & import ─────────────────────────────────────────────
     builder.Services.Configure<GameDB.Application.Options.StoreImportOptions>(builder.Configuration.GetSection("StoreImport"));

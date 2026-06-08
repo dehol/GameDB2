@@ -13,7 +13,8 @@ public sealed class AdminService : IAdminService
     private readonly PriceSyncOperationState  _priceSyncState;
 
     // Slug'и повинні збігатися з IStoreProvider.Slug у кожному провайдері
-    private static readonly string[] PriceSyncProviders = ["steam", "gog", "epic"];
+    private static readonly string[] PriceSyncProviders     = ["steam", "gog", "epic"];
+    private static readonly string[] EnrichmentProviders    = ["steam", "gog", "epic"];
 
     public AdminService(
         IAdminRepository        adminRepo,
@@ -50,10 +51,25 @@ public sealed class AdminService : IAdminService
         return Task.FromResult(1);
     }
 
+    /// <summary>
+    /// БУЛО: один job → Task.WhenAll всередині → ризик перевищення InvisibilityTimeout (8h)
+    ///       → Hangfire перезапускав job → дублювання роботи.
+    ///
+    /// СТАЛО: 3 окремих job (по одному на провайдер) — аналогічно StartPriceSync.
+    ///   — кожен job захищений InvisibilityTimeout незалежно
+    ///   — state.IsRunning = true виставляється ОДРАЗУ → UI без затримки 15с
+    ///   — StopToken лінкується в EnrichProviderAsync → Stop перериває HTTP-запити
+    /// </summary>
     public void StartEnrichmentImport(bool overwriteExisting = false)
     {
-        _jobClient.Enqueue<IGameEnrichmentService>(s =>
-            s.RunEnrichmentJobAsync(null, overwriteExisting, CancellationToken.None));
+        _enrichmentState.ResetStop();
+        _enrichmentState.PrepareParallelSync("Збагачення деталей", EnrichmentProviders.Length);
+
+        foreach (var slug in EnrichmentProviders)
+        {
+            _jobClient.Enqueue<IGameEnrichmentService>(s =>
+                s.EnrichProviderAsync(slug, overwriteExisting, CancellationToken.None));
+        }
     }
 
     /// <summary>

@@ -1,8 +1,10 @@
 using System.Net;
+using System.Threading.RateLimiting;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Http.Resilience;
 using Polly;
 using Polly.CircuitBreaker;
+using Polly.RateLimiting;
 using Polly.Timeout;
 
 namespace GameDB.Infrastructure.Http;
@@ -14,6 +16,7 @@ public static class StoreHttpClientExtensions
     ///
     /// Порядок шарів (Polly v8 — виконуються зверху вниз для вихідного запиту):
     ///
+    ///   [0] ConcurrencyLimiter   — скільки HTTP-запитів одночасно через цей клієнт
     ///   [1] TotalRequestTimeout  — жорсткий ліміт на ВСЮ спробу включно з retry
     ///   [2] CircuitBreaker       — якщо провайдер "ліг" — не бомбардуємо його
     ///   [3] Retry на 5xx         — exponential backoff з jitter
@@ -22,17 +25,37 @@ public static class StoreHttpClientExtensions
     ///
     /// Використання:
     ///   builder.Services
-    ///       .AddHttpClient&lt;SteamStoreProvider&gt;()
-    ///       .AddStoreProviderResiliency("steam");
+    ///       .AddHttpClient&lt;SteamSpyClient&gt;()
+    ///       .AddStoreProviderResiliency("steamspy", maxConcurrency: 2);
     /// </summary>
     public static IHttpClientBuilder AddStoreProviderResiliency(
         this IHttpClientBuilder builder,
-        string providerName = "store")
+        string providerName = "store",
+        int maxConcurrency = 4)   // per-client override: steamspy=2, gog=2, egdata=3
     {
         // AddResilienceHandler повертає IHttpResiliencePipelineBuilder, не IHttpClientBuilder,
         // тому викликаємо як statement і повертаємо оригінальний builder окремо.
         builder.AddResilienceHandler($"{providerName}-pipeline", pipeline =>
         {
+            // ── [0] Concurrency Limiter ──────────────────────────────────────
+            // Обмежує скільки реальних HTTP-запитів одночасно йде через цей клієнт.
+            // Замінює SemaphoreSlim у сервісному шарі — throttling тепер тут,
+            // видимий при реєстрації і різний для кожного провайдера.
+            //
+            // Надлишкові задачі стають у чергу (QueueLimit=200), а не кидають
+            // виняток одразу. RateLimiterRejectedException — лише при переповненні черги.
+            //
+            // Значення per-client (Program.cs):
+            //   steamspy : 2  — soft limit ~4 req/s, але latency ~200ms → 2 одночасно
+            //   gog      : 2  — офіційний але undocumented API
+            //   egdata   : 3  — 2 HTTP-запити на гру, community API
+            pipeline.AddConcurrencyLimiter(new ConcurrencyLimiterOptions
+            {
+                PermitLimit          = maxConcurrency,
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+                QueueLimit           = 200,
+            });
+
             // ── [1] Загальний таймаут ────────────────────────────────────────
             // Максимальний час на всю операцію для одного externalId:
             // 3 retry по 5xx (2+4+8 = 14s backoff) + 3 запити по 30s = ~104s → беремо 3 хвилини.

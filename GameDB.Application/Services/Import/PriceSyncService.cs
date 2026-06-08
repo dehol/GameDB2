@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using GameDB.Application.DTOs.Store;
 using GameDB.Application.Interfaces;
 using GameDB.Domain.Entities;
 using Hangfire;
@@ -194,50 +195,68 @@ public sealed class PriceSyncService(
                 .Select(e => (Game: g, ExternalIdRecord: e)))
             .ToList();
 
-        int updated = 0, skipped = 0, failed = 0;
-
-        foreach (var (_, extId) in pairs)
+        // ── Фаза 1: паралельний fetch цін ─────────────────────────────────────
+        // ConcurrencyLimiter в Polly pipeline контролює скільки HTTP-запитів
+        // одночасно йде через клієнт — DelayBetweenRequestsMs між запитами більше
+        // не потрібен, throttling тепер через Polly.
+        //
+        // Не-скасувальні виключення захоплюються в tuple.Error — Task.WhenAll
+        // завершується повністю, а не зупиняється на першій помилці.
+        var fetchTasks = pairs.Select(async pair =>
         {
-            // Пробрасуємо — це сигнал зупинки, не помилка провайдера
             ct.ThrowIfCancellationRequested();
-
             try
             {
-                var price = await provider.GetPriceAsync(extId.ExternalId, ct);
-
-                if (price is null)
-                {
-                    // Гра є в БД, але ціна недоступна (регіон, знята з продажу тощо)
-                    skipped++;
-                    continue;
-                }
-
-                await priceManager.ProcessPriceUpdateAsync(
-                    externalIdRecordId: extId.Id,
-                    newPrice:           price.Price,
-                    newDiscount:        price.Discount,
-                    currency:           price.Currency,
-                    ct:                 ct);
-
-                state.IncrementProcessed();
-                updated++;
+                var price = await provider.GetPriceAsync(pair.ExternalIdRecord.ExternalId, ct);
+                return (RecordId: pair.ExternalIdRecord.Id, Price: price, Error: (Exception?)null);
             }
             catch (OperationCanceledException)
             {
-                throw; // не ковтаємо — пробрасуємо вгору
+                throw; // пробрасуємо — це сигнал зупинки, не помилка провайдера
             }
             catch (Exception ex)
             {
+                return (RecordId: pair.ExternalIdRecord.Id, Price: (StorePriceInfo?)null, Error: ex);
+            }
+        });
+
+        var results = await Task.WhenAll(fetchTasks);
+
+        // ── Фаза 2: послідовне збереження ─────────────────────────────────────
+        // DbContext не thread-safe — зберігаємо послідовно.
+        // DB-операції швидкі (прості UPDATE), вузьке місце було в HTTP — його вже вирішено.
+        int updated = 0, skipped = 0, failed = 0;
+
+        foreach (var (recordId, price, error) in results)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            if (error is not null)
+            {
                 state.IncrementFailed();
                 failed++;
-                // Warning, не Error: недоступні ціни — нормальна ситуація
                 logger.LogWarning(
-                    "[{Slug}] Не вдалося оновити ціну для {Id}: {Message}",
-                    provider.Slug, extId.ExternalId, ex.Message);
+                    "[{Slug}] Не вдалося отримати ціну для {Id}: {Message}",
+                    provider.Slug, recordId, error.Message);
+                continue;
             }
 
-            if (provider.DelayBetweenRequestsMs > 0)
-                await Task.Delay(provider.DelayBetweenRequestsMs, ct);
+            if (price is null)
+            {
+                // Гра є в БД, але ціна недоступна (регіон, знята з продажу тощо)
+                skipped++;
+                continue;
+            }
+
+            await priceManager.ProcessPriceUpdateAsync(
+                externalIdRecordId: recordId,
+                newPrice:           price.Price,
+                newDiscount:        price.Discount,
+                currency:           price.Currency,
+                ct:                 ct);
+
+            state.IncrementProcessed();
+            updated++;
         }
 
         return (updated, skipped, failed);
