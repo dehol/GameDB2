@@ -9,7 +9,7 @@ namespace GameDB.Application.Interfaces;
 /// </summary>
 public interface ICatalogRepository
 {
-    Task<(List<CatalogGameDto> Items, int TotalCount)> GetPagedAsync(
+    Task<List<CatalogGameDto>> GetPagedAsync(
         CatalogFilterDto filter, CancellationToken ct = default);
 
     Task<CatalogSidebarDto> GetSidebarDataAsync(CancellationToken ct = default);
@@ -17,4 +17,5 @@ public interface ICatalogRepository
     Task<GameDetailDto?> GetDetailAsync(int gameId, CancellationToken ct = default);
 
     Task<List<ShopPriceHistoryDto>> GetPriceHistoryAsync(int gameId, CancellationToken ct = default);
+    Task<int> GetCountAsync(CatalogFilterDto f, CancellationToken ct = default);
 }

@@ -5,5 +5,4 @@ namespace GameDB.Application.Interfaces;
 public interface IGameShopRepository
 {
     Task<int?> GetSteamShopIdAsync(CancellationToken ct = default);
-    Task<List<GameShop>> GetAllAsync(CancellationToken ct = default);
 }

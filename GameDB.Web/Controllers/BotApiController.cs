@@ -243,21 +243,17 @@ public sealed class BotApiController(
             SortDesc    = true,
         };
 
-        var (items, total) = await catalog.GetPagedAsync(filter, ct);
+        var items = await catalog.GetPagedAsync(filter, ct);
 
         return Ok(new
         {
-            total,
             items = items.Select(g => new
             {
                 g.GameId,
                 g.Name,
                 g.Genres,
                 g.Rating,
-                g.BestFinalPrice,
                 g.BestDiscount,
-                g.BestCurrency,
-                g.BestShopName,
                 g.IsFree,
             }),
         });

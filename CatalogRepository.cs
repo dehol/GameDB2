@@ -9,17 +9,21 @@ namespace GameDB.Infrastructure.Catalog;
 
 public sealed class CatalogRepository(AppDbContext db) : ICatalogRepository
 {
-    public async Task<List<CatalogGameDto>> GetPagedAsync(CatalogFilterDto f, CancellationToken ct = default)
+    public async Task<(List<CatalogGameDto> Items, int TotalCount)> GetPagedAsync(
+        CatalogFilterDto f, CancellationToken ct = default)
     {
         var baseQuery = BuildFilteredQuery(f);
 
-        // Захист від від'ємної сторінки
-        var page = f.Page > 0 ? f.Page : 1;
+        var totalCount = await baseQuery.CountAsync(ct);
 
-        var items = await ApplySorting(baseQuery, f)
-            .Skip((page - 1) * f.PageSize)
+        if (totalCount == 0)
+            return ([], 0);
+
+        var rows = await ApplySorting(baseQuery, f)
+            .Skip((f.Page - 1) * f.PageSize)
             .Take(f.PageSize)
-            .Select(g => new CatalogGameDto(
+            .Select(g => new
+            {
                 g.GameId,
                 g.Name,
                 g.HeaderImage,
@@ -27,82 +31,182 @@ public sealed class CatalogRepository(AppDbContext db) : ICatalogRepository
                 g.ReleaseDate,
                 g.Rating,
                 g.RatingCount,
-                g.Genres.OrderBy(gr => gr.Name).Select(gr => gr.Name).ToList(),
-                // Читаємо готові кешовані значення з таблиці Game за O(1)
-                g.CachedBestPrice,
-                g.CachedBestDiscount,
-                g.IsFree
-            ))
+
+                Genres = g.Genres
+                    .OrderBy(gr => gr.Name)
+                    .Select(gr => gr.Name)
+                    .ToList(),
+
+                BestOffer = g.GameExternalIds
+                    .SelectMany(
+                        e => e.GameOffers,
+                        (e, o) => new
+                        {
+                            o.FinalPrice,
+                            o.CurrentPrice,
+                            o.CurrentDiscount,
+                            o.GameOfferId,
+                        })
+                    .OrderBy(x => x.FinalPrice ?? (decimal?)999_999m)
+                    .ThenBy(x => x.GameOfferId)
+                    .FirstOrDefault(),
+            })
             .ToListAsync(ct);
 
-        return items;
+        var items = rows.Select(r => new CatalogGameDto(
+            GameId:           r.GameId,
+            Name:             r.Name,
+            HeaderImage:      r.HeaderImage,
+            IconImage:        r.IconImage,
+            Rating:           r.Rating,
+            RatingCount:      r.RatingCount,
+            Genres:           r.Genres,
+            BestPrice: r.BestOffer?.CurrentPrice,
+            BestDiscount:     r.BestOffer?.CurrentDiscount ?? 0,
+            IsFree:           r.BestOffer?.FinalPrice == 0m
+        )).ToList();
+
+        return (items, totalCount);
     }
 
-    private static IOrderedQueryable<Game> ApplySorting(IQueryable<Game> q, CatalogFilterDto f) =>
+
+    private static IOrderedQueryable<Game> ApplySorting(
+        IQueryable<Game> q, CatalogFilterDto f) =>
         (f.SortBy, f.SortDesc) switch
         {
-            (CatalogSortBy.Name, true) => q.OrderByDescending(g => g.Name).ThenByDescending(g => g.GameId),
-            (CatalogSortBy.Name, false) => q.OrderBy(g => g.Name).ThenBy(g => g.GameId),
+            (CatalogSortBy.Name, true)
+                => q.OrderByDescending(g => g.Name)
+                    .ThenByDescending(g => g.GameId),
+            (CatalogSortBy.Name, false)
+                => q.OrderBy(g => g.Name)
+                    .ThenBy(g => g.GameId),
 
-            (CatalogSortBy.ReleaseDate, true) => q.OrderByDescending(g => g.ReleaseDate).ThenByDescending(g => g.GameId),
-            (CatalogSortBy.ReleaseDate, false) => q.OrderBy(g => g.ReleaseDate).ThenBy(g => g.GameId),
+            (CatalogSortBy.ReleaseDate, true)
+                => q.OrderByDescending(g => g.ReleaseDate)
+                    .ThenByDescending(g => g.GameId),
+            (CatalogSortBy.ReleaseDate, false)
+                => q.OrderBy(g => g.ReleaseDate)
+                    .ThenBy(g => g.GameId),
 
-            (CatalogSortBy.Rating, true) => q.OrderByDescending(g => g.Rating ?? 0d).ThenByDescending(g => g.GameId),
-            (CatalogSortBy.Rating, false) => q.OrderBy(g => g.Rating ?? 0d).ThenBy(g => g.GameId),
+            (CatalogSortBy.Rating, true)
+                => q.OrderByDescending(g => g.Rating ?? 0d)
+                    .ThenByDescending(g => g.GameId),
+            (CatalogSortBy.Rating, false)
+                => q.OrderBy(g => g.Rating ?? 0d)
+                    .ThenBy(g => g.GameId),
 
-            (CatalogSortBy.Popularity, true) => q.OrderByDescending(g => (g.Rating ?? 0d) * (g.RatingCount ?? 0)).ThenByDescending(g => g.GameId),
-            (CatalogSortBy.Popularity, false) => q.OrderBy(g => (g.Rating ?? 0d) * (g.RatingCount ?? 0)).ThenBy(g => g.GameId),
+            // Scalar expression — жодних JOIN і subquery
+            (CatalogSortBy.Popularity, true)
+                => q.OrderByDescending(g => (g.Rating ?? 0d) * (g.RatingCount ?? 0))
+                    .ThenByDescending(g => g.GameId),
+            (CatalogSortBy.Popularity, false)
+                => q.OrderBy(g => (g.Rating ?? 0d) * (g.RatingCount ?? 0))
+                    .ThenBy(g => g.GameId),
 
-            // Більше ніяких Correlated Subquery! Працює через готовий індекс
-            (CatalogSortBy.Price, true) => q.OrderByDescending(g => g.CachedBestPrice ?? 999_999m).ThenByDescending(g => g.GameId),
-            (CatalogSortBy.Price, false) => q.OrderBy(g => g.CachedBestPrice ?? 999_999m).ThenBy(g => g.GameId),
+            // Correlated MIN subquery — IX_GameOffer_ExternalId_Cover → INDEX ONLY SCAN
+            (CatalogSortBy.Price, true)
+                => q.OrderByDescending(g =>
+                        g.GameExternalIds.SelectMany(e => e.GameOffers)
+                                          .Min(o => (decimal?)o.FinalPrice) ?? 999_999m)
+                    .ThenByDescending(g => g.GameId),
+            (CatalogSortBy.Price, false)
+                => q.OrderBy(g =>
+                        g.GameExternalIds.SelectMany(e => e.GameOffers)
+                                          .Min(o => (decimal?)o.FinalPrice) ?? 999_999m)
+                    .ThenBy(g => g.GameId),
 
-            (CatalogSortBy.Discount, true) => q.OrderByDescending(g => g.CachedBestDiscount).ThenByDescending(g => g.GameId),
-            (CatalogSortBy.Discount, false) => q.OrderBy(g => g.CachedBestDiscount).ThenBy(g => g.GameId),
+            // Correlated MAX subquery — IX_GameOffer_ExternalId_Cover → INDEX ONLY SCAN
+            (CatalogSortBy.Discount, true)
+                => q.OrderByDescending(g =>
+                        g.GameExternalIds.SelectMany(e => e.GameOffers)
+                                          .Max(o => (int?)o.CurrentDiscount) ?? 0)
+                    .ThenByDescending(g => g.GameId),
+            (CatalogSortBy.Discount, false)
+                => q.OrderBy(g =>
+                        g.GameExternalIds.SelectMany(e => e.GameOffers)
+                                          .Max(o => (int?)o.CurrentDiscount) ?? 0)
+                    .ThenBy(g => g.GameId),
 
-            (CatalogSortBy.UpdatedAt, true) => q.OrderByDescending(g => g.UpdatedAt).ThenByDescending(g => g.GameId),
-            (CatalogSortBy.UpdatedAt, false) => q.OrderBy(g => g.UpdatedAt).ThenBy(g => g.GameId),
+            (CatalogSortBy.UpdatedAt, true)
+                => q.OrderByDescending(g => g.UpdatedAt)
+                    .ThenByDescending(g => g.GameId),
+            (CatalogSortBy.UpdatedAt, false)
+                => q.OrderBy(g => g.UpdatedAt)
+                    .ThenBy(g => g.GameId),
 
-            _ => q.OrderByDescending(g => (g.Rating ?? 0d) * (g.RatingCount ?? 0)).ThenByDescending(g => g.GameId),
+            _ => q.OrderByDescending(g => (g.Rating ?? 0d) * (g.RatingCount ?? 0))
+                  .ThenByDescending(g => g.GameId),
         };
+
+    // ═════════════════════════════════════════════════════════════════════════
+    //  BuildFilteredQuery — бізнес-логіка фільтрів без змін
+    // ═════════════════════════════════════════════════════════════════════════
 
     private IQueryable<Game> BuildFilteredQuery(CatalogFilterDto f)
     {
-        var query = db.Games.AsNoTracking().Where(g => g.ImportStatus == GameImportStatus.Full);
+        var query = db.Games
+            .AsNoTracking()
+            .Where(g => g.ImportStatus == GameImportStatus.Full);
 
+        // ── Пошук по назві ────────────────────────────────────────────────────
+        // ILike генерує ILIKE — без pg_trgm це SeqScan.
+        // Додайте IX_Game_Name_Trgm (GIN trigram) → перетворюється на Bitmap Index Scan.
         if (!string.IsNullOrWhiteSpace(f.Search))
-            query = query.Where(g => EF.Functions.ILike(g.Name, $"%{f.Search.Trim()}%"));
+        {
+            var s = f.Search.Trim();
+            query = query.Where(g => EF.Functions.ILike(g.Name, $"%{s}%"));
+        }
 
-        // BUGFIX: Додано перевірку на f.GenreIds != null, щоб уникнути NullReferenceException
-        if (f.GenreIds?.Count > 0)
+        // ── Жанри / Теги ──────────────────────────────────────────────────────
+        if (f.GenreIds.Count > 0)
             query = query.Where(g => g.Genres.Any(genre => f.GenreIds.Contains(genre.GenreId)));
 
-        if (f.TagIds?.Count > 0)
+        if (f.TagIds.Count > 0)
             query = query.Where(g => g.Tags.Any(tag => f.TagIds.Contains(tag.TagId)));
 
-        if (f.DeveloperId.HasValue) query = query.Where(g => g.DeveloperId == f.DeveloperId.Value);
-        if (f.PublisherId.HasValue) query = query.Where(g => g.PublisherId == f.PublisherId.Value);
-        
+        // ── Розробник / Видавець / Магазин ────────────────────────────────────
+        if (f.DeveloperId.HasValue)
+            query = query.Where(g => g.DeveloperId == f.DeveloperId.Value);
+        if (f.PublisherId.HasValue)
+            query = query.Where(g => g.PublisherId == f.PublisherId.Value);
+
         if (f.ShopId.HasValue)
-            query = query.Where(g => g.GameExternalIds.Any(e => e.ShopId == f.ShopId.Value));
+            query = query.Where(g =>
+                g.GameExternalIds.Any(e => e.ShopId == f.ShopId.Value && e.GameOffers.Any()));
 
+        // ── Роки випуску ──────────────────────────────────────────────────────
         if (f.YearFrom.HasValue)
-            query = query.Where(g => g.ReleaseDate != null && g.ReleaseDate.Value.Year >= f.YearFrom.Value);
-
+            query = query.Where(g => g.ReleaseDate != null
+                                     && g.ReleaseDate.Value.Year >= f.YearFrom.Value);
         if (f.YearTo.HasValue)
-            query = query.Where(g => g.ReleaseDate != null && g.ReleaseDate.Value.Year <= f.YearTo.Value);
+            query = query.Where(g => g.ReleaseDate != null
+                                     && g.ReleaseDate.Value.Year <= f.YearTo.Value);
 
+        // ── Рейтинг ───────────────────────────────────────────────────────────
         if (f.MinRating.HasValue)
             query = query.Where(g => g.Rating != null && g.Rating >= f.MinRating.Value);
 
-        // Фільтрація по цінах тепер звертається до прямих полів
-        if (f.MinPrice.HasValue) query = query.Where(g => g.CachedBestPrice >= f.MinPrice.Value);
-        if (f.MaxPrice.HasValue) query = query.Where(g => g.CachedBestPrice <= f.MaxPrice.Value);
-        if (f.MinDiscount.HasValue) query = query.Where(g => g.CachedBestDiscount >= f.MinDiscount.Value);
-        if (f.IsFree == true) query = query.Where(g => g.IsFree);
+        // ── Ціна / Знижка / Безкоштовні ───────────────────────────────────────
+        if (f.MinPrice.HasValue)
+            query = query.Where(g =>
+                g.GameExternalIds.Any(e => e.GameOffers.Any(o => o.FinalPrice >= f.MinPrice.Value)));
+        if (f.MaxPrice.HasValue)
+            query = query.Where(g =>
+                g.GameExternalIds.Any(e => e.GameOffers.Any(o => o.FinalPrice <= f.MaxPrice.Value)));
+        if (f.MinDiscount.HasValue)
+            query = query.Where(g =>
+                g.GameExternalIds.Any(e => e.GameOffers.Any(o => o.CurrentDiscount >= f.MinDiscount.Value)));
+        if (f.IsFree == true)
+            query = query.Where(g =>
+                g.GameExternalIds.Any(e => e.GameOffers.Any(o => o.FinalPrice == 0)));
 
         return query;
     }
+
+    // ═════════════════════════════════════════════════════════════════════════
+    //  GetSidebarDataAsync — оптимізовано: yearMin/Max → 1 query замість 2
+    // ═════════════════════════════════════════════════════════════════════════
+
     public async Task<CatalogSidebarDto> GetSidebarDataAsync(CancellationToken ct = default)
     {
         // Sidebar рідко змінюється — розгляньте IMemoryCache з expiry ~1h
@@ -280,10 +384,5 @@ public sealed class CatalogRepository(AppDbContext db) : ICatalogRepository
                         ph.Currency))
                     .ToList()))
             .ToListAsync(ct);
-    }
-
-    public async Task<int> GetCountAsync(CatalogFilterDto f, CancellationToken ct = default)
-    {
-        return await BuildFilteredQuery(f).CountAsync(ct);
     }
 }

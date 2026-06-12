@@ -238,6 +238,15 @@
             Назва@(SortArrow(CatalogSortBy.Name))
         </a>
     </div>
+
+    @if (m.Result.TotalCount > 0)
+    {
+        var from = (m.Result.Page - 1) * m.Result.PageSize + 1;
+        var to   = Math.Min(m.Result.Page * m.Result.PageSize, m.Result.TotalCount);
+        <div class="text-muted small">
+            @from–@to з @m.Result.TotalCount
+        </div>
+    }
 </div>
 
 @* ── Flash-повідомлення колекцій ─────────────────────────────────────────── *@

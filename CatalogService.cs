@@ -3,6 +3,10 @@ using GameDB.Application.Interfaces;
 
 namespace GameDB.Application.Services;
 
+/// <summary>
+/// Application-шар: оркестрація каталогу.
+/// Залежить тільки від ICatalogRepository (інтерфейс) — без знання про EF / AppDbContext.
+/// </summary>
 public class CatalogService : ICatalogService
 {
     private readonly ICatalogRepository _repo;
@@ -12,11 +16,7 @@ public class CatalogService : ICatalogService
     public async Task<CatalogResultDto> GetCatalogAsync(
         CatalogFilterDto filter, CancellationToken ct = default)
     {
-        // 1. Отримуємо тільки елементи поточної сторінки
-        var items = await _repo.GetPagedAsync(filter, ct);
-
-        // 2. Рахуємо total count окремим швидким запитом
-        var total = await _repo.GetCountAsync(filter, ct);
+        var (items, total) = await _repo.GetPagedAsync(filter, ct);
 
         return new CatalogResultDto(
             Items:      items,

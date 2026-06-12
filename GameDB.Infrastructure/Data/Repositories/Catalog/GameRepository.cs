@@ -12,9 +12,6 @@ public sealed partial class GameRepository(AppDbContext db) : IGameRepository
     public Task<Game?> GetByIdAsync(int gameId, CancellationToken ct = default)
         => db.Games.AsNoTracking().FirstOrDefaultAsync(g => g.GameId == gameId, ct);
 
-    public Task<int> GetTotalGamesCountAsync(CancellationToken ct = default)
-        => db.Games.CountAsync(ct);
-
     public Task<int> GetGameCountByShopAsync(int shopId, CancellationToken ct = default)
         => db.Set<GameExternalId>()
             .Where(e => e.ShopId == shopId)
@@ -72,30 +69,12 @@ public sealed partial class GameRepository(AppDbContext db) : IGameRepository
 
     // ── Запис ─────────────────────────────────────────────────────────────────
 
-    public async Task AddAsync(Game game, CancellationToken ct = default)
-    {
-        db.Games.Add(game);
-        await db.SaveChangesAsync(ct);
-    }
-
-    public async Task UpdateAsync(Game game, CancellationToken ct = default)
-    {
-        db.Games.Update(game);
-        await db.SaveChangesAsync(ct);
-    }
-
     public async Task UpdateBatchAsync(IReadOnlyCollection<Game> games, CancellationToken ct = default)
     {
         db.Games.UpdateRange(games);
         await db.SaveChangesAsync(ct);
     }
 
-    public async Task DeleteAsync(int gameId, CancellationToken ct = default)
-        => await db.Games.Where(g => g.GameId == gameId).ExecuteDeleteAsync(ct);
-
-    /// <summary>
-    /// Один SaveChanges на весь батч — суттєво знижує кількість round-trips до БД.
-    /// </summary>
     public async Task ImportBatchAsync(
         IReadOnlyCollection<Game> newGames,
         IReadOnlyCollection<GameExternalId> newLinks,

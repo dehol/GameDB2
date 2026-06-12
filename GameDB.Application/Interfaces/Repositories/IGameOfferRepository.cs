@@ -5,10 +5,8 @@ namespace GameDB.Application.Interfaces;
 
 public interface IGameOfferRepository
 {
-    Task<GameOffer?> GetGameOfferAsync(int gameId, int shopId, CancellationToken ct = default);
     Task AddGameOfferAsync(GameOffer offer, CancellationToken ct = default);
     Task UpdateGameOfferAsync(GameOffer offer, CancellationToken ct = default);
-    Task<List<GameOffer>> GetByGameIdAsync(int gameId, CancellationToken ct = default);
 
     Task<GameOffer?> GetByExternalIdRecordAsync(int externalIdRecordId, CancellationToken ct = default);
 

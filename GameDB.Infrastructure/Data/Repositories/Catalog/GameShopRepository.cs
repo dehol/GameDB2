@@ -16,7 +16,4 @@ public sealed class GameShopRepository(AppDbContext db) : IGameShopRepository
 
         return shop?.ShopId;
     }
-
-    public Task<List<GameShop>> GetAllAsync(CancellationToken ct = default)
-        => db.GameShops.AsNoTracking().OrderBy(s => s.Name).ToListAsync(ct);
 }

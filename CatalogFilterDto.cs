@@ -43,18 +43,18 @@ public enum CatalogSortBy
 // ─── Картка гри для каталогу ─────────────────────────────────────────────
 
 public record CatalogGameDto(
-    int GameId,
-    string Name,
+    int     GameId,
+    string  Name,
     string? HeaderImage,
     string? IconImage,
-    DateOnly? ReleaseDate,
     double? Rating,
-    int? RatingCount,
+    int?    RatingCount,
     List<string> Genres,
     decimal? BestPrice,
-    int BestDiscount,
-    bool IsFree
+    int      BestDiscount,
+    bool     IsFree
 );
+
 // ─── Деталі гри ──────────────────────────────────────────────────────────
 
 public record GameDetailDto(

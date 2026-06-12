@@ -45,7 +45,9 @@ public class IndexModel : PageModel
     [BindProperty(SupportsGet = true)] public bool           SortDesc    { get; set; } = true;
     [BindProperty(SupportsGet = true)] public int            PageSize    { get; set; } = 24;
 
-    [BindProperty(SupportsGet = true, Name = "page")] public int CurrentPage { get; set; } = 1;
+    // CurrentPage — не [BindProperty]: читається через параметр page у OnGetAsync,
+    // щоб уникнути конфліктів між POST-body та query-string.
+    public int CurrentPage { get; private set; } = 1;
 
     // ─── Обробники GET ────────────────────────────────────────────────────────
 
@@ -56,17 +58,13 @@ public class IndexModel : PageModel
     /// Рядки даних БД читаються строго послідовно (await), не Task.WhenAll,
     /// щоб не порушити потокобезпечність єдиного AppDbContext у Scoped-контейнері.
     /// </summary>
-    public async Task<IActionResult> OnGetAsync()
+    public async Task<IActionResult> OnGetAsync(int page = 1)
     {
-        // Валідуємо CurrentPage, який вже автоматично заповнився з URL (?page=X)
-        if (CurrentPage < 1)
-        {
-            CurrentPage = 1;
-        }
-
+        CurrentPage = Math.Max(1, page);
         await LoadCatalogAsync();
 
         // HX-Request: true — автоматичний заголовок, який HTMX додає до кожного hx-get.
+        // Повертаємо тільки partial з сіткою ігор — без layout і sidebar.
         if (Request.Headers.ContainsKey("HX-Request"))
             return Partial("_GamesListPartial", this);
 

@@ -8,7 +8,6 @@ public interface IGameRepository
     // ── Базові запити ─────────────────────────────────────────────────────────
 
     Task<Game?>      GetByIdAsync(int gameId, CancellationToken ct = default);
-    Task<int>        GetTotalGamesCountAsync(CancellationToken ct = default);
     Task<int>        GetGameCountByShopAsync(int shopId, CancellationToken ct = default);
     Task<List<Game>> GetGamesBatchFromShopAsync(int skip, int take, int shopId, CancellationToken ct = default);
     Task<List<Game>> GetGamesByExternalIdsBatchAsync(int shopId, IReadOnlyCollection<string> externalIds, CancellationToken ct = default);
@@ -23,10 +22,7 @@ public interface IGameRepository
 
     // ── Запис ─────────────────────────────────────────────────────────────────
 
-    Task AddAsync(Game game, CancellationToken ct = default);
-    Task UpdateAsync(Game game, CancellationToken ct = default);
     Task UpdateBatchAsync(IReadOnlyCollection<Game> games, CancellationToken ct = default);
-    Task DeleteAsync(int gameId, CancellationToken ct = default);
 
     /// <summary>
     /// Атомарно зберігає нові ігри та нові ExternalId одним SaveChanges.

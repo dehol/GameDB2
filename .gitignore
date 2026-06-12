@@ -12,7 +12,7 @@ appsettings.Local.json
 *.user
 *.userosscache
 *.sln.docstates
-
+*.env
 # Локальні файли Visual Studio
 .vs/
 .vscode/
