@@ -30,7 +30,13 @@ public partial class Game
     
     public string NormalizedName { get; set; } = null!;
 
-    public Vector? Embedding { get; set; }
+    /// <summary>
+    /// Опис гри (HTML або plain-text), отриманий від постачальника магазину під час збагачення.
+    /// Може містити HTML-розмітку — перед виведенням на сторінці проходить через GameDescriptionSanitizer.
+    /// </summary>
+    public string? Description { get; set; }
+
+    public Pgvector.Vector? Embedding { get; set; }
 
     public virtual ICollection<Alert> Alerts { get; set; } = new List<Alert>();
 

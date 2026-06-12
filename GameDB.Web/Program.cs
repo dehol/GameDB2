@@ -8,6 +8,7 @@ using GameDB.Infrastructure.Data.Repositories;
 using GameDB.Infrastructure.ExternalProviders;
 using GameDB.Infrastructure.Http;
 using GameDB.Infrastructure.Steam;
+using GameDB.Infrastructure.AI;
 using Hangfire;
 using Hangfire.PostgreSql;
 using Microsoft.AspNetCore.Authentication;
@@ -69,7 +70,7 @@ try
 
     // ── База даних ───────────────────────────────────────────────────────────
     builder.Services.AddDbContext<AppDbContext>(options =>
-        options.UseNpgsql("Host=localhost;Port=5432;Database=mygamedb;Username=postgres;Password=postgres"));
+        options.UseNpgsql("Host=localhost;Port=5432;Database=mygamedb;Username=postgres;Password=postgres", npgsqlOptions => npgsqlOptions.UseVector()));
 
     // ── Hangfire ─────────────────────────────────────────────────────────────
     builder.Services.AddHangfire(configuration => configuration
@@ -118,7 +119,7 @@ try
 
     builder.Services
         .AddHttpClient<GameDB.Application.Interfaces.ISteamSpyClient, GameDB.Infrastructure.ExternalProviders.SteamSpyClient>()
-        .AddStoreProviderResiliency("steamspy", maxConcurrency: 2); // soft limit ~4 req/s
+        .AddStoreProviderResiliency("steamspy", maxConcurrency: 4); // soft limit ~4 req/s
 
     builder.Services
         .AddHttpClient<GameDB.Application.Interfaces.IGogClient, GameDB.Infrastructure.ExternalProviders.GogClient>()
@@ -156,6 +157,11 @@ try
     builder.Services.AddSingleton<GameDB.Web.Services.GameDescriptionSanitizer>();
     builder.Services.AddScoped<GameDB.Web.Services.AuthCookieService>();
     builder.Services.AddScoped<GameDB.Web.Services.SteamPlayerService>();
+
+    //AI
+    builder.Services.AddScoped<IUserEmbeddingService, UserEmbeddingService>();
+    builder.Services.AddScoped<IUserProfileService, UserProfileService>();
+    builder.Services.AddScoped<IRecommendationEngine, RecommendationEngine>();
     builder.Services.AddHttpClient();
 
     builder.Services.Configure<SteamSpyImportOptions>(builder.Configuration.GetSection("SteamSpy"));

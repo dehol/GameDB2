@@ -85,6 +85,13 @@ public sealed class EGDataItemDto
 
     [JsonPropertyName("linkedOffers")]
     public List<string?> LinkedOffers { get; init; } = [];
+
+    /// <summary>
+    /// Текстовий або HTML опис гри від EGData API.
+    /// Може бути null якщо API не повертає поле для конкретного елемента.
+    /// </summary>
+    [JsonPropertyName("description")]
+    public string? Description { get; init; }
 }
 
 public sealed class EGDataReleaseInfoDto

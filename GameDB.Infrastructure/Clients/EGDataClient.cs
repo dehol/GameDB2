@@ -132,6 +132,7 @@ public sealed class EGDataClient : IEGDataClient
             if (!offerResponse.IsSuccessStatusCode)
             {
                 _logger.LogWarning("Offer request failed {Id} → {Status}", itemId, offerResponse.StatusCode);
+                return null;
             }
 
             var offerJson = await offerResponse.Content.ReadAsStringAsync(ct);
@@ -140,10 +141,10 @@ public sealed class EGDataClient : IEGDataClient
 
             using var doc = JsonDocument.Parse(offerJson);
 
-            var offerId = doc.RootElement
-                .GetProperty("id")
-                .GetString();
+            if (!doc.RootElement.TryGetProperty("id", out var idProp))
+                return null;
 
+            var offerId = idProp.GetString();
             if (string.IsNullOrWhiteSpace(offerId))
                 return null;
 
@@ -157,19 +158,37 @@ public sealed class EGDataClient : IEGDataClient
             }
 
             var priceJson = await priceResponse.Content.ReadAsStringAsync(ct);
+            if (string.IsNullOrWhiteSpace(priceJson))
+                return null;
 
-            var priceDoc = JsonDocument.Parse(priceJson);
+            using var priceDoc = JsonDocument.Parse(priceJson);
 
-            var price = priceDoc.RootElement
-                .GetProperty("price");
+            if (!priceDoc.RootElement.TryGetProperty("price", out var price))
+                return null;
 
-            var originalPrice = price.GetProperty("originalPrice").GetDecimal() / 100m;
-            var discountPrice = price.GetProperty("discountPrice").GetDecimal() / 100m;
-            decimal discountPercent = 0; 
-            if(originalPrice > 0)
-                discountPercent = Math.Round(1 - (discountPrice / originalPrice), 2);
+            if (!price.TryGetProperty("discountPrice", out var discountPriceProp))
+                return null;
 
-            return new StorePriceInfo(originalPrice, (short)(discountPercent * 100), _country);
+            var discountPrice = discountPriceProp.GetDecimal() / 100m;
+
+            short discount;
+            if (price.TryGetProperty("discountPercentage", out var discountPctProp))
+            {
+                discount = (short)discountPctProp.GetInt32();
+            }
+            else if (price.TryGetProperty("originalPrice", out var originalPriceProp))
+            {
+                var originalPrice = originalPriceProp.GetDecimal() / 100m;
+                discount = originalPrice > 0
+                    ? (short)Math.Round((1 - discountPrice / originalPrice) * 100)
+                    : (short)0;
+            }
+            else
+            {
+                discount = 0;
+            }
+
+            return new StorePriceInfo(discountPrice, discount, _country);
         }
         catch (Exception ex)
         {

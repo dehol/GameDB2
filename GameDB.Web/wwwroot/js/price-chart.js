@@ -1,198 +1,173 @@
 /**
- * price-chart.js
- * Графік цін на сторінці деталей гри.
- * Залежність: Chart.js 4.x (підключається умовно зі CDN у Details.cshtml).
+ * price-chart.js — Динаміка цін для картки гри (GameDB)
  *
- * ⚠ PriceHistory.Price зберігає ОРИГІНАЛЬНУ ціну (до знижки).
- *   Ефективна ціна = Price * (1 - DiscountPercent / 100).
+ * Вхідні дані очікуються у форматі:
+ *   [{ shopName, shopColor, pricePoints: [{ date: "YYYY-MM-DD", price }] }]
+ *
+ * Серіалізуються server-side у <script id="priceHistoryData" type="application/json">
+ * і читаються через JSON.parse у Details.cshtml.
+ *
+ * Структура БД (нагадування): PriceHistory дістається транзитно —
+ *   Game → GameExternalIds[] → GameOffers[] → PriceHistories[]
+ * Жодного прямого game.GameOffers — CS1061.
  */
 
-function initPriceChart(historyData) {
-    if (!historyData || historyData.length === 0) return;
-
-    const canvas = document.getElementById('priceChart');
-    if (!canvas) return;
-
+const priceChart = (() => {
+    /** @type {Chart|null} */
     let chart = null;
 
-    /* ── Допоміжні ──────────────────────────────────────────────────── */
-
-    function formatDate(isoStr) {
-        const d = new Date(isoStr);
-        return d.toLocaleDateString('uk-UA', {
-            day: '2-digit',
-            month: 'short',
-            year: 'numeric'
-        });
+    /**
+     * Збирає всі унікальні дати з усіх магазинів і сортує їх.
+     * @param {Array} histories
+     * @returns {string[]}
+     */
+    function buildLabels(histories) {
+        const dates = new Set();
+        histories.forEach(h =>
+            h.pricePoints.forEach(p => dates.add(p.date))
+        );
+        return [...dates].sort();
     }
-
-    /** Розраховує ціну після знижки. */
-    function effectivePrice(originalPrice, discountPercent) {
-        if (discountPercent <= 0) return Number(originalPrice);
-        return Number(originalPrice) * (1 - discountPercent / 100);
-    }
-
-    /** Segment callback для Chart.js 4.x: колір ділянки між двома точками. */
-    function segmentColor(points, normalColor, saleColor) {
-        return function (ctx) {
-            return points[ctx.p0DataIndex].discountPercent > 0 ? saleColor : normalColor;
-        };
-    }
-
-    /* ── Підготовка точок ───────────────────────────────────────────── */
 
     /**
-     * Будує масив точок:
-     * 1. Рахує ефективну ціну (після знижки).
-     * 2. Якщо остання реальна точка — не сьогодні, додає синтетичну
-     *    "сьогоднішню" точку з тим самим станом ціни, щоб лінія
-     *    продовжувалась до поточної дати.
+     * Будує dataset для Chart.js для одного магазину.
+     * Дати без даних заповнюються null (Chart.js пропускає їх).
+     * @param {{ shopName: string, shopColor: string, pricePoints: {date:string,price:number}[] }} history
+     * @param {string[]} allLabels
+     * @returns {object}
      */
-    function buildPoints(rawPoints) {
-        const pts = rawPoints.map(p => ({
-            date:            p.recordedAt,
-            effective:       effectivePrice(p.price, p.discountPercent),
-            original:        Number(p.price),
-            discountPercent: p.discountPercent,
-            synthetic:       false
-        }));
-
-        if (pts.length === 0) return pts;
-
-        const last     = pts[pts.length - 1];
-        const todayEOD = new Date();
-        todayEOD.setHours(23, 59, 59, 999);
-        const lastDate = new Date(last.date);
-
-        // Додаємо синтетичну точку тільки якщо остання точка — не сьогодні
-        if (lastDate < todayEOD && lastDate.toDateString() !== todayEOD.toDateString()) {
-            pts.push({
-                date:            todayEOD.toISOString(),
-                effective:       last.effective,
-                original:        last.original,
-                discountPercent: last.discountPercent,
-                synthetic:       true
-            });
-        }
-
-        return pts;
+    function buildDataset(history, allLabels) {
+        const priceMap = new Map(
+            history.pricePoints.map(p => [p.date, p.price])
+        );
+        return {
+            label:                history.shopName,
+            data:                 allLabels.map(d => priceMap.get(d) ?? null),
+            borderColor:          history.shopColor,
+            backgroundColor:      hexToRgba(history.shopColor, 0.08),
+            borderWidth:          2,
+            pointRadius:          3,
+            pointHoverRadius:     5,
+            pointBackgroundColor: history.shopColor,
+            tension:              0.3,
+            fill:                 false,
+            spanGaps:             true,   // з'єднує розриви, де ціна відсутня
+        };
     }
 
-    /* ── Основний рендер ────────────────────────────────────────────── */
+    /**
+     * Ініціалізує Chart.js на вказаному canvas.
+     * @param {string} canvasId
+     * @param {Array}  histories
+     */
+    function init(canvasId, histories) {
+        if (!histories || histories.length === 0) return;
 
-    function renderShop(idx) {
-        const shop = historyData[idx];
-        if (!shop || shop.points.length === 0) {
-            if (chart) { chart.destroy(); chart = null; }
-            return;
+        const ctx = document.getElementById(canvasId);
+        if (!ctx) return;
+
+        const labels   = buildLabels(histories);
+        const datasets = histories.map(h => buildDataset(h, labels));
+
+        // Знищуємо попередній екземпляр, якщо є (при hot-reload)
+        if (chart) {
+            chart.destroy();
+            chart = null;
         }
 
-        const currency    = shop.points[0].currency;
-        const pts         = buildPoints(shop.points);
-
-        const labels      = pts.map(p => formatDate(p.date));
-        const prices      = pts.map(p => p.effective);
-
-        const normalColor = '#0d6efd';
-        const saleColor   = '#28a745';
-
-        // Синтетична "сьогодні" точка — без крапки на графіку
-        const pointRadii       = pts.map(p => p.synthetic ? 0 : 4);
-        const pointHoverRadii  = pts.map(p => p.synthetic ? 0 : 7);
-        const pointColors      = pts.map(p =>
-            p.synthetic ? 'transparent' : (p.discountPercent > 0 ? saleColor : normalColor)
-        );
-
-        const dataset = {
-            label: shop.shopName,
-            data: prices,
-            stepped: 'before',
-            tension: 0,
-            fill: true,
-            borderColor: normalColor,
-            backgroundColor: 'rgba(13,110,253,0.06)',
-            pointRadius:          pointRadii,
-            pointHoverRadius:     pointHoverRadii,
-            pointBackgroundColor: pointColors,
-            pointBorderColor:     pointColors,
-            segment: {
-                borderColor:     segmentColor(pts, normalColor, saleColor),
-                backgroundColor: segmentColor(
-                    pts,
-                    'rgba(13,110,253,0.06)',
-                    'rgba(40,167,69,0.07)'
-                ),
-            }
-        };
-
-        if (chart) chart.destroy();
-
-        chart = new Chart(canvas, {
+        chart = new Chart(ctx, {
             type: 'line',
-            data: { labels, datasets: [dataset] },
+            data: { labels, datasets },
             options: {
-                responsive: true,
+                responsive:          true,
                 maintainAspectRatio: false,
-                interaction: { mode: 'index', intersect: false },
-                animation: { duration: 250 },
+                interaction: {
+                    mode:      'index',
+                    intersect: false,
+                },
                 plugins: {
-                    legend: { display: false },
+                    legend: {
+                        display:  histories.length > 1,
+                        position: 'top',
+                        labels: {
+                            boxWidth: 12,
+                            font:     { size: 12 },
+                        },
+                    },
                     tooltip: {
                         callbacks: {
-                            title: ctx => {
-                                const p = pts[ctx[0].dataIndex];
-                                return p.synthetic
-                                    ? formatDate(p.date) + ' (сьогодні)'
-                                    : ctx[0].label;
+                            label(ctx) {
+                                const val = ctx.parsed.y;
+                                return val === null
+                                    ? `${ctx.dataset.label}: —`
+                                    : `${ctx.dataset.label}: ${val.toFixed(2)}`;
                             },
-                            label: ctx => {
-                                const p    = pts[ctx.dataIndex];
-                                const disc = p.discountPercent;
-                                const eff  = p.effective;
-
-                                // "2.50 USD  −75%  (було 9.99)"
-                                let line = eff.toFixed(2) + '\u00a0' + currency;
-                                if (disc > 0) {
-                                    line += '  \u2212' + disc + '%';
-                                    line += '  (було\u00a0' + p.original.toFixed(2) + ')';
-                                }
-                                return line;
-                            }
-                        }
-                    }
+                        },
+                    },
                 },
                 scales: {
                     x: {
+                        type:         'category',
                         ticks: {
-                            maxTicksLimit: 9,
-                            maxRotation: 30,
-                            font: { size: 11 }
+                            maxTicksLimit: 10,
+                            maxRotation:   30,
+                            font:          { size: 11 },
+                            callback(val, idx) {
+                                // Показуємо дату скорочено: "Jan '24"
+                                const d = new Date(this.getLabelForValue(idx));
+                                return d.toLocaleDateString('uk-UA', {
+                                    month: 'short',
+                                    year:  '2-digit',
+                                });
+                            },
                         },
-                        grid: { color: 'rgba(0,0,0,0.04)' }
+                        grid: { display: false },
                     },
                     y: {
                         beginAtZero: false,
                         ticks: {
                             font: { size: 11 },
-                            callback: v => parseFloat(v).toFixed(2) + '\u00a0' + currency
+                            callback(val) {
+                                return val === 0 ? 'Безкоштовно' : val.toFixed(2);
+                            },
                         },
-                        grid: { color: 'rgba(0,0,0,0.04)' }
-                    }
-                }
-            }
+                        grid: {
+                            color: 'rgba(0,0,0,0.05)',
+                        },
+                    },
+                },
+            },
         });
     }
 
-    /* ── Ініціалізація ──────────────────────────────────────────────── */
+    /**
+     * Показує/приховує датасети за назвою магазину.
+     * @param {string}      shopName  'all' або назва конкретного магазину
+     * @param {HTMLElement} btn       кнопка, що була натиснута (для підсвічення)
+     */
+    function showShops(shopName, btn) {
+        if (!chart) return;
 
-    renderShop(0);
-
-    document.querySelectorAll('[data-shop-index]').forEach(function (btn) {
-        btn.addEventListener('click', function () {
-            document.querySelectorAll('[data-shop-index]')
-                .forEach(b => b.classList.remove('active'));
-            this.classList.add('active');
-            renderShop(parseInt(this.dataset.shopIndex, 10));
+        chart.data.datasets.forEach(ds => {
+            ds.hidden = shopName !== 'all' && ds.label !== shopName;
         });
-    });
-}
+        chart.update('active');
+
+        // Оновлення активного стану кнопок
+        const tabs = document.getElementById('shopTabs');
+        if (tabs) {
+            tabs.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+            if (btn) btn.classList.add('active');
+        }
+    }
+
+    // ── Утиліта: hex → rgba ────────────────────────────────────────────────
+    function hexToRgba(hex, alpha) {
+        const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+        if (!result) return `rgba(99,102,241,${alpha})`;
+        const [, r, g, b] = result.map(x => parseInt(x, 16));
+        return `rgba(${r},${g},${b},${alpha})`;
+    }
+
+    return { init, showShops };
+})();

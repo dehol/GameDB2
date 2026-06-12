@@ -49,17 +49,30 @@ public sealed class GameOfferRepository(AppDbContext context) : IGameOfferReposi
             .Where(o => o.External.GameId == gameId)
             .ToListAsync(ct);
 
-    /// <summary>
-    /// Дані для графіка ціни у SteamDB-стилі.
-    ///
-    /// Запит використовує LEAD() щоб обчислити кінець кожного цінового сегменту:
-    ///   - для всіх записів крім останнього: PeriodEnd = RecordedAt наступного запису
-    ///   - для останнього запису: PeriodEnd = LastSyncedAt (ціна актуальна до останньої синхронізації)
-    ///
-    /// Приклад результату для графіка (step-function):
-    ///   PeriodStart          PeriodEnd            Price   Discount
-    ///   2026-03-22 18:00     2026-03-29 18:00     29.99   0%
-    ///   2026-03-29 18:00     2026-04-05 18:00     14.99   50%   ← знижка
-    ///   2026-04-05 18:00     2026-05-26 13:09     29.99   0%    ← ціна повернулась
-    /// </summary>
+    public async Task<Dictionary<int, GameOffer>> GetBulkByExternalIdRecordsAsync(
+    IReadOnlyList<int> externalIdRecordIds,
+    CancellationToken ct = default)
+    => await context.GameOffers
+        .Where(o => externalIdRecordIds.Contains(o.ExternalId))
+        .ToDictionaryAsync(o => o.ExternalId, ct);
+        // EF Core генерує: SELECT ... WHERE ExternalId IN (1, 2, 3, ..., 100)
+        // Один запит замість 100
+
+    public async Task BulkUpsertAsync(
+        IReadOnlyList<GameOffer> toAdd,
+        IReadOnlyList<GameOffer> toUpdate,
+        CancellationToken ct = default)
+    {
+        if (toAdd.Count > 0)
+            await context.GameOffers.AddRangeAsync(toAdd, ct);
+
+        if (toUpdate.Count > 0)
+            context.GameOffers.UpdateRange(toUpdate);
+            // EF Core відстежує зміни і генерує окремий UPDATE для кожного,
+            // але відправляє їх усі в межах ОДНІЄЇ транзакції
+
+        await context.SaveChangesAsync(ct);
+        // Тригер fn_sync_price_history спрацьовує для кожного рядка окремо —
+        // PostgreSQL row-level trigger, тому поведінка незмінна
+    }
 }

@@ -74,7 +74,9 @@ public record GameDetailDto(
     string?   DeveloperName,
     string?   PublisherName,
     List<string> Genres,
-    List<string> Tags, // Вже було, використовуватимемо в Details.cshtml
+    List<string> Tags,
+    /// <summary>Сирий опис від постачальника (HTML або plain-text). Перед виведенням санітизувати.</summary>
+    string?      Description,
     Dictionary<string, string> ExternalIds,
     List<GameOfferDto> Offers,
     GameImportStatus ImportStatus

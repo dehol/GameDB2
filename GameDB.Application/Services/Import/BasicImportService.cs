@@ -16,11 +16,17 @@ public sealed class BasicImportService(
     BasicImportOperationState state,
     ILogger<BasicImportService> logger) : IBasicImportService
 {
-    private readonly StoreImportOptions _options = options.Value;
+    private readonly StoreImportOptions        _options   = options.Value;
     private readonly IReadOnlyList<IStoreProvider> _providers = providers.ToList();
 
     public BasicImportOperationState State => state;
 
+    /// <remarks>
+    /// Зупинка через кнопку адмін-панелі спрацьовує між батчами:
+    /// RequestStop() → IsRunning = false — перевіряється в циклах нижче.
+    /// StopToken не лінкується до ct, тому поточний await не переривається,
+    /// на відміну від GameEnrichmentService де StopToken ввімкнений у LinkedCts.
+    /// </remarks>
     public async Task RunImportJobAsync(string? providerSlug, CancellationToken ct)
     {
         if (!state.TryStart())
@@ -40,11 +46,11 @@ public sealed class BasicImportService(
             foreach (var provider in targetProviders)
             {
                 if (ct.IsCancellationRequested || !state.IsRunning) break;
-                
-                logger.LogInformation("[{Slug}] Запуск імпорту через Hangfire", provider.Slug);
+
+                logger.LogInformation("[{Slug}] Запуск базового імпорту", provider.Slug);
                 state.LastMessage = $"[{provider.Slug}] Завантаження списку ігор з API...";
-                
-                await ImportBasicInternalAsync(provider, ct); 
+
+                await ImportBasicInternalAsync(provider, ct);
             }
 
             state.MarkFinished("Базовий імпорт успішно завершено.");
@@ -60,7 +66,7 @@ public sealed class BasicImportService(
             state.MarkFinished("Базовий імпорт завершився аварійно.");
         }
     }
-    
+
     private async Task ImportBasicInternalAsync(IStoreProvider provider, CancellationToken ct)
     {
         IReadOnlyCollection<StoreGameListItem> list = [];
@@ -94,40 +100,39 @@ public sealed class BasicImportService(
             return;
         }
 
-        state.Total += toProcess.Count;
+        state.AddToTotal(toProcess.Count);
 
         int imported = 0;
         for (int i = 0; i < toProcess.Count; i += _options.BasicImportBatchSize)
         {
             if (ct.IsCancellationRequested || !state.IsRunning) break;
-            
+
             var batch = toProcess.Skip(i).Take(_options.BasicImportBatchSize).ToList();
             try
             {
                 using var scope = scopeFactory.CreateScope();
                 var repo = scope.ServiceProvider.GetRequiredService<IGameRepository>();
-                
+
                 await ImportOrLinkBatchAsync(repo, batch, provider, ct);
-                
+
                 imported += batch.Count;
-
-                for (int b = 0; b < batch.Count; b++)
-                {
-                    state.IncrementProcessed();
-                }
-
+                state.AddToProcessed(batch.Count);
                 state.LastMessage = $"[{provider.Slug}] Імпортовано {imported} з {toProcess.Count} нових ігор";
             }
             catch (Exception ex)
             {
                 logger.LogError(ex, "[{Slug}] Basic: помилка батчу", provider.Slug);
-                for (int b = 0; b < batch.Count; b++) state.IncrementFailed();
+                state.IncrementFailed();
                 state.LastError = $"[{provider.Slug}] Помилка батчу: {ex.Message}";
             }
         }
     }
 
-    private static async Task ImportOrLinkBatchAsync(IGameRepository repo, List<StoreGameListItem> batch, IStoreProvider provider, CancellationToken ct)
+    private static async Task ImportOrLinkBatchAsync(
+        IGameRepository repo,
+        List<StoreGameListItem> batch,
+        IStoreProvider provider,
+        CancellationToken ct)
     {
         var itemsWithNormalized = batch
             .Select(item => (Item: item, Normalized: GameNameNormalizer.Normalize(item.Name)))
@@ -136,12 +141,14 @@ public sealed class BasicImportService(
 
         if (itemsWithNormalized.Count == 0) return;
 
-        var names = itemsWithNormalized.Select(x => x.Normalized).Distinct().ToList();
+        var names         = itemsWithNormalized.Select(x => x.Normalized).Distinct().ToList();
         var existingGames = await repo.GetGamesByNormalizedNamesAsync(names, ct);
-        var existingDict = existingGames.GroupBy(g => g.NormalizedName).ToDictionary(g => g.Key, g => g.ToList());
+        var existingDict  = existingGames
+            .GroupBy(g => g.NormalizedName)
+            .ToDictionary(g => g.Key, g => g.ToList());
 
         var linkedInBatch = new HashSet<int>();
-        var now = DateTime.UtcNow;
+        var now      = DateTime.UtcNow;
         var newGames = new List<Game>();
         var newLinks = new List<GameExternalId>();
 
@@ -149,20 +156,22 @@ public sealed class BasicImportService(
         {
             Game? existing = null;
             if (existingDict.TryGetValue(normalized, out var candidateGames))
-                existing = candidateGames.FirstOrDefault(g => g.Name.Equals(item.Name, StringComparison.OrdinalIgnoreCase));
+                existing = candidateGames.FirstOrDefault(g =>
+                    g.Name.Equals(item.Name, StringComparison.OrdinalIgnoreCase));
 
             if (existing is not null)
             {
-                if (existing.GameExternalIds.Any(e => e.ShopId == provider.ShopId) || linkedInBatch.Contains(existing.GameId))
+                if (existing.GameExternalIds.Any(e => e.ShopId == provider.ShopId)
+                    || linkedInBatch.Contains(existing.GameId))
                     continue;
 
                 newLinks.Add(new GameExternalId
                 {
-                    GameId = existing.GameId,
-                    ShopId = provider.ShopId,
+                    GameId     = existing.GameId,
+                    ShopId     = provider.ShopId,
                     ExternalId = item.ExternalId,
                     ExternalUrl = provider.BuildOfferUrl(item.Slug ?? item.ExternalId),
-                    CreatedAt = now
+                    CreatedAt  = now
                 });
                 linkedInBatch.Add(existing.GameId);
             }
@@ -170,22 +179,23 @@ public sealed class BasicImportService(
             {
                 var game = new Game
                 {
-                    Name = item.Name,
+                    Name           = item.Name,
                     NormalizedName = normalized,
-                    ImportStatus = GameImportStatus.Basic,
-                    CreatedAt = now,
-                    UpdatedAt = now
+                    ImportStatus   = GameImportStatus.Basic,
+                    CreatedAt      = now,
+                    UpdatedAt      = now
                 };
                 game.GameExternalIds.Add(new GameExternalId
                 {
-                    ShopId = provider.ShopId,
-                    ExternalId = item.ExternalId,
+                    ShopId      = provider.ShopId,
+                    ExternalId  = item.ExternalId,
                     ExternalUrl = provider.BuildOfferUrl(item.Slug ?? item.ExternalId),
-                    CreatedAt = now
+                    CreatedAt   = now
                 });
                 newGames.Add(game);
 
-                if (!existingDict.TryGetValue(normalized, out var lst)) existingDict[normalized] = lst = [];
+                if (!existingDict.TryGetValue(normalized, out var lst))
+                    existingDict[normalized] = lst = [];
                 lst.Add(game);
             }
         }

@@ -46,6 +46,8 @@ public partial class AppDbContext : DbContext
 
     public virtual DbSet<Wishlist> Wishlists { get; set; }
 
+    public DbSet<UserGameFeedback> UserGameFeedbacks => Set<UserGameFeedback>();
+
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
 #warning To protect potentially sensitive information in your connection string, you should move it out of source code. You can avoid scaffolding the connection string by using the Name= syntax to read it from configuration - see https://go.microsoft.com/fwlink/?linkid=2131148. For more guidance on storing connection strings, see https://go.microsoft.com/fwlink/?LinkId=723263.
         => optionsBuilder.UseNpgsql("Host=localhost;Port=5432;Database=mygamedb;Username=postgres;Password=postgres");
@@ -133,7 +135,7 @@ public partial class AppDbContext : DbContext
                         j.HasIndex(new[] { "TagId" }, "IX_GameTag_TagId");
                     });
             entity.Property(e => e.Embedding)
-                .HasColumnType("vector(384)");
+                .HasColumnType("vector(768)");
 
             entity.HasIndex(e => e.Embedding)
                 .HasMethod("hnsw")
@@ -288,6 +290,28 @@ public partial class AppDbContext : DbContext
             entity.HasOne(d => d.Game).WithMany(p => p.Wishlists).HasForeignKey(d => d.GameId);
 
             entity.HasOne(d => d.User).WithMany(p => p.Wishlists).HasForeignKey(d => d.UserId);
+        });
+        
+        modelBuilder.Entity<UserGameFeedback>(b =>
+        {
+            b.ToTable("UserGameFeedback");
+            b.HasKey(f => f.FeedbackId);
+            
+            b.Property(f => f.FeedbackId)
+                .UseIdentityByDefaultColumn();
+                
+            b.Property(f => f.CreatedAt)
+                .HasDefaultValueSql("NOW() AT TIME ZONE 'UTC'");
+            
+            b.HasIndex(f => new { f.UserId, f.GameId })
+                .IsUnique();
+            
+            b.HasIndex(f => new { f.UserId, f.IsLiked });
+            
+            b.HasOne(f => f.Game)
+                .WithMany()
+                .HasForeignKey(f => f.GameId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         OnModelCreatingPartial(modelBuilder);

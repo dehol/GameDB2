@@ -51,6 +51,30 @@ public sealed class GogProductDetailsDto
 
     [JsonPropertyName("price")]
     public GogPriceDto? Price { get; init; }
+
+    /// <summary>
+    /// Текстовий опис гри. GOG повертає об'єкт {full, lead, whatsNew}.
+    /// Для зберігання у Game.Description використовується поле lead (короткий), 
+    /// або full (повний HTML) якщо lead відсутній.
+    /// </summary>
+    [JsonPropertyName("description")]
+    public GogDescriptionDto? Description { get; init; }
+}
+
+/// <summary>GOG description об'єкт із продуктового API.</summary>
+public sealed class GogDescriptionDto
+{
+    /// <summary>Короткий вступний текст (plain-text або light HTML).</summary>
+    [JsonPropertyName("lead")]
+    public string? Lead { get; init; }
+
+    /// <summary>Повний HTML-опис (може містити зображення, відео, теги Steam).</summary>
+    [JsonPropertyName("full")]
+    public string? Full { get; init; }
+
+    /// <summary>Текст «Що нового» (оновлення). Зазвичай порожній.</summary>
+    [JsonPropertyName("whatsNew")]
+    public string? WhatsNew { get; init; }
 }
 
 public sealed class GogCategoryDto

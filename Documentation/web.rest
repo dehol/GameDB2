@@ -24,3 +24,7 @@ Content-Type: text/plain
 search "Counter-Strike";
 fields name, summary, storyline;
 limit 1;
+###
+GET http://localhost:5295/api/bot/users/1/profile
+
+Header: X-Bot-Api-Key: changeme-secret

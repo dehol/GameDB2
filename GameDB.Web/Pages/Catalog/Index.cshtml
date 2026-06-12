@@ -16,85 +16,60 @@
     <span class="text-muted small">@m.Result.TotalCount ігор</span>
 </div>
 
-@{
-    bool hasFilters = !string.IsNullOrWhiteSpace(m.Search) || m.Genres.Count > 0 ||
-                      m.DeveloperId.HasValue || m.PublisherId.HasValue || m.ShopId.HasValue ||
-                      m.MinPrice.HasValue || m.MaxPrice.HasValue || m.MinDiscount.HasValue ||
-                      m.YearFrom.HasValue || m.YearTo.HasValue || m.MinRating.HasValue || m.IsFree == true;
-}
-@if (hasFilters)
-{
-    <div class="active-filters">
-        @if (!string.IsNullOrWhiteSpace(m.Search))
-        {
-            <span class="filter-tag">🔍 "@m.Search" <a class="remove" href="@m.RemoveFilter("search")">×</a></span>
-        }
-        @foreach (var gid in m.Genres)
-        {
-            var gname = m.Sidebar.Genres.FirstOrDefault(g => g.GenreId == gid)?.Name ?? gid.ToString();
-            <span class="filter-tag">🎮 @gname <a class="remove" href="@m.RemoveGenre(gid)">×</a></span>
-        }
-        @if (m.DeveloperId.HasValue)
-        {
-            var dname = m.Sidebar.Developers.FirstOrDefault(d => d.DeveloperId == m.DeveloperId.Value)?.Name ?? "";
-            <span class="filter-tag">👨‍💻 @dname <a class="remove" href="@m.RemoveFilter("developerId")">×</a></span>
-        }
-        @if (m.PublisherId.HasValue)
-        {
-            var pname = m.Sidebar.Publishers.FirstOrDefault(p => p.PublisherId == m.PublisherId.Value)?.Name ?? "";
-            <span class="filter-tag">🏢 @pname <a class="remove" href="@m.RemoveFilter("publisherId")">×</a></span>
-        }
-        @if (m.ShopId.HasValue)
-        {
-            var sname = m.Sidebar.Shops.FirstOrDefault(s => s.ShopId == m.ShopId.Value)?.Name ?? "";
-            <span class="filter-tag">🛒 @sname <a class="remove" href="@m.RemoveFilter("shopId")">×</a></span>
-        }
-        @if (m.MinPrice.HasValue || m.MaxPrice.HasValue)
-        {
-            <span class="filter-tag">💰 @(m.MinPrice?.ToString("0.##") ?? "0")–@(m.MaxPrice?.ToString("0.##") ?? "∞")
-                <a class="remove" href="@m.RemoveFilters("minPrice", "maxPrice")">×</a></span>
-        }
-        @if (m.MinDiscount.HasValue)
-        {
-            <span class="filter-tag">🏷 ≥@m.MinDiscount%
-                <a class="remove" href="@m.RemoveFilter("minDiscount")">×</a></span>
-        }
-        @if (m.YearFrom.HasValue || m.YearTo.HasValue)
-        {
-            <span class="filter-tag">📅 @(m.YearFrom?.ToString() ?? "")–@(m.YearTo?.ToString() ?? "")
-                <a class="remove" href="@m.RemoveFilters("yearFrom", "yearTo")">×</a></span>
-        }
-        @if (m.MinRating.HasValue)
-        {
-            <span class="filter-tag">⭐ ≥@m.MinRating%
-                <a class="remove" href="@m.RemoveFilter("minRating")">×</a></span>
-        }
-        @if (m.IsFree == true)
-        {
-            <span class="filter-tag">🆓 Безкоштовні
-                <a class="remove" href="@m.RemoveFilter("isFree")">×</a></span>
-        }
-        <a href="/Catalog" class="filter-tag" style="background:#fff3cd;">✕ Скинути всі</a>
-    </div>
-}
-
 <div class="catalog-layout">
+
+    @* ══════════════════════════════════════════════════════════════════════════
+       SIDEBAR — залишається на місці при HTMX-запитах.
+       Форма є єдиним джерелом правди для фільтрів.
+
+       hx-get:        URL обробника (OnGetAsync перевіряє HX-Request header)
+       hx-target:     замінює innerHtml #games-container partial'ом
+       hx-push-url:   синхронізує адресний рядок після кожного запиту
+       hx-indicator:  показує spinner під час запиту
+       hx-trigger:    «change» з debounce — для select/checkbox;
+                      «keyup changed delay:500ms» з input[name=search] — для пошуку;
+                      «submit» — кнопка «Застосувати»
+    ══════════════════════════════════════════════════════════════════════════ *@
     <aside class="catalog-sidebar">
-        <form method="get" id="filterForm" action="/Catalog">
+        <form id="filterForm"
+              method="get"
+              action="/Catalog"
+              hx-get="/Catalog"
+              hx-target="#games-container"
+              hx-push-url="true"
+              hx-indicator="#games-loading"
+              hx-trigger="change delay:300ms, submit">
+
+            @* Прихована синхронізація стану сортування і розміру сторінки.
+               Оновлюється через htmx:afterSettle у JS нижче, щоб при зміні
+               фільтра sort не скидався до дефолту. *@
+            <input type="hidden" id="hiddenSortBy"   name="sortBy"   value="@m.SortBy" />
+            <input type="hidden" id="hiddenSortDesc" name="sortDesc" value="@m.SortDesc.ToString().ToLower()" />
+            <input type="hidden" id="hiddenPage"     name="page"     value="1" />
+            <input type="hidden"                     name="pageSize" value="@m.PageSize" />
+
+            @* ── Пошук ──────────────────────────────────────────────────────── *@
             <div class="sidebar-section">
                 <div class="section-title">Пошук</div>
                 <div class="input-group input-group-sm">
-                    <input type="text" name="search" class="form-control" placeholder="Назва гри..."
-                           value="@m.Search" />
+                    <input type="text"
+                           name="search"
+                           id="searchInput"
+                           class="form-control"
+                           placeholder="Назва гри..."
+                           value="@m.Search"
+                           autocomplete="off"
+                           hx-get="/Catalog"
+                           hx-target="#games-container"
+                           hx-push-url="true"
+                           hx-indicator="#games-loading"
+                           hx-trigger="keyup changed delay:500ms"
+                           hx-include="#filterForm" />
                     <button class="btn btn-outline-secondary" type="submit">🔍</button>
                 </div>
             </div>
 
-            <input type="hidden" name="sortBy"   value="@m.SortBy" />
-            <input type="hidden" name="sortDesc" value="@m.SortDesc.ToString().ToLower()" />
-            <input type="hidden" name="page"     value="1" />
-            <input type="hidden" name="pageSize" value="@m.PageSize" />
-
+            @* ── Жанри ──────────────────────────────────────────────────────── *@
             @if (m.Sidebar.Genres.Count > 0)
             {
                 <div class="sidebar-section">
@@ -103,10 +78,14 @@
                         @foreach (var genre in m.Sidebar.Genres)
                         {
                             <div class="form-check d-flex align-items-center">
-                                <input class="form-check-input filter-check" type="checkbox" name="genres"
-                                       value="@genre.GenreId" id="g@(genre.GenreId)"
+                                <input class="form-check-input"
+                                       type="checkbox"
+                                       name="genres"
+                                       value="@genre.GenreId"
+                                       id="g@(genre.GenreId)"
                                        @(m.Genres.Contains(genre.GenreId) ? "checked" : "") />
-                                <label class="form-check-label flex-grow-1" for="g@(genre.GenreId)">@genre.Name</label>
+                                <label class="form-check-label flex-grow-1"
+                                       for="g@(genre.GenreId)">@genre.Name</label>
                                 <span class="genre-count">@genre.GameCount</span>
                             </div>
                         }
@@ -114,300 +93,224 @@
                 </div>
             }
 
+            @* ── Теги ────────────────────────────────────────────────────────── *@
+            @if (m.Sidebar.Tags.Count > 0)
+            {
+                <div class="sidebar-section">
+                    <div class="section-title">Теги</div>
+                    <div class="genre-list-inner">
+                        @foreach (var tag in m.Sidebar.Tags)
+                        {
+                            <div class="form-check d-flex align-items-center">
+                                <input class="form-check-input"
+                                       type="checkbox"
+                                       name="tags"
+                                       value="@tag.TagId"
+                                       id="t@(tag.TagId)"
+                                       @(m.Tags.Contains(tag.TagId) ? "checked" : "") />
+                                <label class="form-check-label flex-grow-1"
+                                       for="t@(tag.TagId)">@tag.Name</label>
+                                <span class="genre-count">@tag.GameCount</span>
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
+
+            @* ── Магазин ─────────────────────────────────────────────────────── *@
             @if (m.Sidebar.Shops.Count > 0)
             {
                 <div class="sidebar-section">
                     <div class="section-title">Магазин</div>
-                    <select name="shopId" class="form-select form-select-sm filter-select">
+                    <select name="shopId" class="form-select form-select-sm">
                         <option value="">Усі магазини</option>
                         @foreach (var shop in m.Sidebar.Shops)
                         {
-                            if (m.ShopId == shop.ShopId)
-                            {
-                                <option value="@shop.ShopId" selected>@shop.Name</option>
-                            }
-                            else
-                            {
-                                <option value="@shop.ShopId">@shop.Name</option>
-                            }
+                            @* <!option> вимикає OptionTagHelper і дозволяє @(...) в attribute area *@
+                            <!option value="@shop.ShopId" @(m.ShopId == shop.ShopId ? "selected" : "")>@shop.Name</!option>
                         }
                     </select>
                 </div>
             }
 
+            @* ── Ціна ────────────────────────────────────────────────────────── *@
             <div class="sidebar-section">
                 <div class="section-title">Ціна</div>
                 <div class="d-flex gap-2">
-                    <input type="number" name="minPrice" class="form-control form-control-sm"
-                           placeholder="Від" value="@m.MinPrice" min="0" step="0.01" />
-                    <input type="number" name="maxPrice" class="form-control form-control-sm"
-                           placeholder="До" value="@m.MaxPrice" min="0" step="0.01" />
+                    <input type="number"
+                           name="minPrice"
+                           class="form-control form-control-sm"
+                           placeholder="Від"
+                           value="@m.MinPrice"
+                           min="0"
+                           step="0.01" />
+                    <input type="number"
+                           name="maxPrice"
+                           class="form-control form-control-sm"
+                           placeholder="До"
+                           value="@m.MaxPrice"
+                           min="0"
+                           step="0.01" />
                 </div>
                 <div class="form-check mt-2">
-                    <input class="form-check-input filter-check" type="checkbox" name="isFree" value="true"
-                           id="chkFree" @(m.IsFree == true ? "checked" : "") />
-                    <label class="form-check-label small" for="chkFree">Тільки безкоштовні</label>
+                    <input class="form-check-input"
+                           type="checkbox"
+                           name="isFree"
+                           value="true"
+                           id="chkFree"
+                           @(m.IsFree == true ? "checked" : "") />
+                    <label class="form-check-label small" for="chkFree">
+                        Тільки безкоштовні
+                    </label>
                 </div>
             </div>
 
+            @* ── Мін. знижка ─────────────────────────────────────────────────── *@
             <div class="sidebar-section">
                 <div class="section-title">Мін. знижка</div>
-                <select name="minDiscount" class="form-select form-select-sm filter-select">
+                <select name="minDiscount" class="form-select form-select-sm">
                     <option value="">Будь-яка</option>
                     @foreach (var pct in new[] { 10, 25, 50, 75, 90 })
                     {
-                        if (m.MinDiscount == pct)
-                        {
-                            <option value="@pct" selected>≥ @pct%</option>
-                        }
-                        else
-                        {
-                            <option value="@pct">≥ @pct%</option>
-                        }
+                        <!option value="@pct" @(m.MinDiscount == pct ? "selected" : "")>≥ @pct%</!option>
                     }
                 </select>
             </div>
 
+            @* ── Мін. рейтинг ────────────────────────────────────────────────── *@
             <div class="sidebar-section">
                 <div class="section-title">Мін. рейтинг</div>
-                <select name="minRating" class="form-select form-select-sm filter-select">
+                <select name="minRating" class="form-select form-select-sm">
                     <option value="">Будь-який</option>
                     @foreach (var r in new[] { 50.0, 60.0, 70.0, 80.0, 90.0 })
                     {
-                        if (m.MinRating == r)
-                        {
-                            <option value="@r" selected>≥ @r%</option>
-                        }
-                        else
-                        {
-                            <option value="@r">≥ @r%</option>
-                        }
+                        <!option value="@r" @(m.MinRating == r ? "selected" : "")>≥ @r%</!option>
                     }
                 </select>
             </div>
 
+            @* ── Рік випуску ─────────────────────────────────────────────────── *@
             <div class="sidebar-section">
                 <div class="section-title">Рік випуску</div>
                 <div class="d-flex gap-2">
-                    <input type="number" name="yearFrom" class="form-control form-control-sm"
-                           placeholder="З" value="@m.YearFrom"
-                           min="@m.Sidebar.MinYear" max="@m.Sidebar.MaxYear" />
-                    <input type="number" name="yearTo" class="form-control form-control-sm"
-                           placeholder="По" value="@m.YearTo"
-                           min="@m.Sidebar.MinYear" max="@m.Sidebar.MaxYear" />
+                    <input type="number"
+                           name="yearFrom"
+                           class="form-control form-control-sm"
+                           placeholder="З"
+                           value="@m.YearFrom"
+                           min="@m.Sidebar.MinYear"
+                           max="@m.Sidebar.MaxYear" />
+                    <input type="number"
+                           name="yearTo"
+                           class="form-control form-control-sm"
+                           placeholder="По"
+                           value="@m.YearTo"
+                           min="@m.Sidebar.MinYear"
+                           max="@m.Sidebar.MaxYear" />
                 </div>
             </div>
 
+            @* ── Розробник ───────────────────────────────────────────────────── *@
             @if (m.Sidebar.Developers.Count > 0)
             {
                 <div class="sidebar-section">
                     <div class="section-title">Розробник</div>
-                    <select name="developerId" class="form-select form-select-sm filter-select">
+                    <select name="developerId" class="form-select form-select-sm">
                         <option value="">Усі розробники</option>
                         @foreach (var dev in m.Sidebar.Developers)
                         {
-                            if (m.DeveloperId == dev.DeveloperId)
-                            {
-                                <option value="@dev.DeveloperId" selected>@dev.Name</option>
-                            }
-                            else
-                            {
-                                <option value="@dev.DeveloperId">@dev.Name</option>
-                            }
+                            <!option value="@dev.DeveloperId" @(m.DeveloperId == dev.DeveloperId ? "selected" : "")>@dev.Name</!option>
                         }
                     </select>
                 </div>
             }
 
+            @* ── Видавець ────────────────────────────────────────────────────── *@
             @if (m.Sidebar.Publishers.Count > 0)
             {
                 <div class="sidebar-section">
                     <div class="section-title">Видавець</div>
-                    <select name="publisherId" class="form-select form-select-sm filter-select">
+                    <select name="publisherId" class="form-select form-select-sm">
                         <option value="">Усі видавці</option>
                         @foreach (var pub in m.Sidebar.Publishers)
                         {
-                            if (m.PublisherId == pub.PublisherId)
-                            {
-                                <option value="@pub.PublisherId" selected>@pub.Name</option>
-                            }
-                            else
-                            {
-                                <option value="@pub.PublisherId">@pub.Name</option>
-                            }
+                            <!option value="@pub.PublisherId" @(m.PublisherId == pub.PublisherId ? "selected" : "")>@pub.Name</!option>
                         }
                     </select>
                 </div>
             }
 
-            <button type="submit" class="btn btn-primary btn-sm w-100">Застосувати</button>
-            <a href="/Catalog" class="btn btn-outline-secondary btn-sm w-100 mt-2">Скинути фільтри</a>
+            <div class="d-grid gap-2 mt-3">
+                <button type="submit" class="btn btn-primary btn-sm">Застосувати</button>
+                <a href="/Catalog"
+                   hx-get="/Catalog"
+                   hx-target="#games-container"
+                   hx-push-url="true"
+                   class="btn btn-outline-secondary btn-sm">Скинути фільтри</a>
+            </div>
+
         </form>
     </aside>
 
+    @* ══════════════════════════════════════════════════════════════════════════
+       MAIN CONTENT
+       #games-container — HTMX target: при кожному hx-get сюди вставляється
+       HTML з _GamesListPartial (active filters + sort bar + grid + pagination).
+       При звичайному GET partial рендериться inline через Html.PartialAsync.
+    ══════════════════════════════════════════════════════════════════════════ *@
     <div class="catalog-main">
-        <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
-            <div class="sort-bar">
-                <span class="text-muted small">Сортувати:</span>
-                @{
-                    string SortClass(CatalogSortBy s) => m.SortBy == s ? "sort-link active" : "sort-link";
-                    string SortArrow(CatalogSortBy s) => m.SortBy == s ? (m.SortDesc ? " ↓" : " ↑") : "";
-                }
-                <a href="@m.SortUrl(CatalogSortBy.Popularity)"  class="@SortClass(CatalogSortBy.Popularity)">Популярність@(SortArrow(CatalogSortBy.Popularity))</a>
-                <a href="@m.SortUrl(CatalogSortBy.Rating)"      class="@SortClass(CatalogSortBy.Rating)">Рейтинг@(SortArrow(CatalogSortBy.Rating))</a>
-                <a href="@m.SortUrl(CatalogSortBy.Price)"       class="@SortClass(CatalogSortBy.Price)">Ціна@(SortArrow(CatalogSortBy.Price))</a>
-                <a href="@m.SortUrl(CatalogSortBy.Discount)"    class="@SortClass(CatalogSortBy.Discount)">Знижка@(SortArrow(CatalogSortBy.Discount))</a>
-                <a href="@m.SortUrl(CatalogSortBy.ReleaseDate)" class="@SortClass(CatalogSortBy.ReleaseDate)">Дата@(SortArrow(CatalogSortBy.ReleaseDate))</a>
-                <a href="@m.SortUrl(CatalogSortBy.Name)"        class="@SortClass(CatalogSortBy.Name)">Назва@(SortArrow(CatalogSortBy.Name))</a>
+
+        @* Спіннер — видимий лише під час HTMX-запиту (клас htmx-request) *@
+        <div id="games-loading" class="htmx-indicator catalog-loading">
+            <div class="spinner-border spinner-border-sm text-primary" role="status">
+                <span class="visually-hidden">Завантаження...</span>
             </div>
-            <div class="text-muted small">
-                Показано @(((m.Result.Page - 1) * m.Result.PageSize) + 1)–@(Math.Min(m.Result.Page * m.Result.PageSize, m.Result.TotalCount))
-                з @m.Result.TotalCount
-            </div>
+            <span class="ms-2 text-muted small">Пошук ігор...</span>
         </div>
 
-        @await Html.PartialAsync("_CollectionMessages")
+        <div id="games-container">
+            @await Html.PartialAsync("_GamesListPartial", Model)
+        </div>
 
-        @if (m.Result.Items.Count == 0)
-        {
-            <div class="text-center py-5 text-muted">
-                <div style="font-size:3rem">🎮</div>
-                <p class="mt-2">Ігор за вашими фільтрами не знайдено.</p>
-                <a href="/Catalog" class="btn btn-outline-primary btn-sm">Скинути фільтри</a>
-            </div>
-        }
-        else
-        {
-            <div class="games-grid">
-                @foreach (var game in m.Result.Items)
-                {
-                    var returnUrl = m.CatalogReturnUrl();
-                    <div class="game-card-wrap">
-                        <a class="game-card" href="/Catalog/Details/@game.GameId">
-                            @if (!string.IsNullOrEmpty(game.HeaderImage))
-                            {
-                                <img class="game-card-img" src="@game.HeaderImage" alt="@game.Name" loading="lazy" />
-                            }
-                            else
-                            {
-                                <div class="game-card-img-placeholder">🎮</div>
-                            }
-                            <div class="game-card-body">
-                                <div class="game-card-name" title="@game.Name">@game.Name</div>
-                                @if (!string.IsNullOrEmpty(game.DeveloperName))
-                                {
-                                    <div class="game-card-developer">@game.DeveloperName</div>
-                                }
-                                @if (game.Genres.Count > 0)
-                                {
-                                    <div class="game-card-genres">
-                                        @foreach (var genre in game.Genres.Take(2))
-                                        {
-                                            <span class="badge bg-secondary me-1">@genre</span>
-                                        }
-                                        @if (game.Genres.Count > 2)
-                                        {
-                                            <span class="badge bg-light text-muted">+@(game.Genres.Count - 2)</span>
-                                        }
-                                    </div>
-                                }
-                                <div class="game-card-footer">
-                                    <div class="game-card-rating">
-                                        @if (game.Rating.HasValue)
-                                        {
-                                            <span>⭐ @game.Rating.Value.ToString("0")%</span>
-                                            @if (game.RatingCount.HasValue)
-                                            {
-                                                <span class="text-muted">(@game.RatingCount)</span>
-                                            }
-                                        }
-                                        else
-                                        {
-                                            <span class="text-muted">—</span>
-                                        }
-                                    </div>
-                                    <div class="game-card-price">
-                                        @if (game.IsFree)
-                                        {
-                                            <span class="price-free">Безкоштовно</span>
-                                        }
-                                        else if (game.BestFinalPrice.HasValue)
-                                        {
-                                            @if (game.BestDiscount > 0)
-                                            {
-                                                <div><span class="discount-badge">-@game.BestDiscount%</span></div>
-                                                <div><span class="price-original">@game.BestCurrentPrice?.ToString("0.##") @game.BestCurrency</span></div>
-                                            }
-                                            <span class="price-current">@game.BestFinalPrice.Value.ToString("0.##") @game.BestCurrency</span>
-                                        }
-                                        else
-                                        {
-                                            <span class="text-muted small">Ціна невідома</span>
-                                        }
-                                    </div>
-                                </div>
-                            </div>
-                        </a>
-                        @if (m.IsRegisteredUser)
-                        {
-                            <partial name="_GameQuickActions" model="new GameDB.Web.Pages.Shared.GameQuickActionsModel(
-                                game.GameId,
-                                m.WishlistIds.Contains(game.GameId),
-                                game.BestFinalPrice,
-                                returnUrl,
-                                UseDetailsRoute: false)" />
-                        }
-                    </div>
-                }
-            </div>
-        }
-
-        @if (m.Result.TotalPages > 1)
-        {
-            <nav class="mt-4">
-                <ul class="pagination justify-content-center flex-wrap">
-                    @if (m.Result.Page > 1)
-                    {
-                        <li class="page-item">
-                            <a class="page-link" href="@m.PageUrl(m.Result.Page - 1)">‹</a>
-                        </li>
-                    }
-                    @{
-                        int startPage = Math.Max(1, m.Result.Page - 3);
-                        int endPage   = Math.Min(m.Result.TotalPages, m.Result.Page + 3);
-                    }
-                    @if (startPage > 1)
-                    {
-                        <li class="page-item"><a class="page-link" href="@m.PageUrl(1)">1</a></li>
-                        @if (startPage > 2) { <li class="page-item disabled"><span class="page-link">…</span></li> }
-                    }
-                    @for (int p = startPage; p <= endPage; p++)
-                    {
-                        <li class="page-item @(p == m.Result.Page ? "active" : "")">
-                            <a class="page-link" href="@m.PageUrl(p)">@p</a>
-                        </li>
-                    }
-                    @if (endPage < m.Result.TotalPages)
-                    {
-                        @if (endPage < m.Result.TotalPages - 1) { <li class="page-item disabled"><span class="page-link">…</span></li> }
-                        <li class="page-item"><a class="page-link" href="@m.PageUrl(m.Result.TotalPages)">@m.Result.TotalPages</a></li>
-                    }
-                    @if (m.Result.Page < m.Result.TotalPages)
-                    {
-                        <li class="page-item">
-                            <a class="page-link" href="@m.PageUrl(m.Result.Page + 1)">›</a>
-                        </li>
-                    }
-                </ul>
-            </nav>
-        }
     </div>
 </div>
 
 @section Scripts {
-<script>
-    document.querySelectorAll('.filter-select, .filter-check').forEach(el => {
-        el.addEventListener('change', () => document.getElementById('filterForm').submit());
+    @* HTMX — підключається тут (специфічно для каталогу), а не в _Layout *@
+    <script src="https://cdn.jsdelivr.net/npm/htmx.org@2.0.4/dist/htmx.min.js"
+            crossorigin="anonymous"></script>
+
+    <script>
+    /**
+     * Після кожного HTMX-settle синхронізуємо приховані поля форми
+     * з поточним URL-рядком. Це вирішує проблему «sort скидається після
+     * зміни фільтра»: sort-посилання оновлюють URL через hx-push-url,
+     * а JS нижче читає нові sortBy / sortDesc і записує їх у форму.
+     */
+    document.body.addEventListener('htmx:afterSettle', function () {
+        const params  = new URLSearchParams(window.location.search);
+        const sortBy  = document.getElementById('hiddenSortBy');
+        const sortDesc = document.getElementById('hiddenSortDesc');
+
+        if (sortBy   && params.has('sortBy'))   sortBy.value   = params.get('sortBy');
+        if (sortDesc && params.has('sortDesc')) sortDesc.value = params.get('sortDesc');
+
+        // Сторінка завжди скидається до 1 при зміні фільтра —
+        // прихований input page=1 залишається незмінним.
     });
-</script>
+
+    /**
+     * При звичайному (не-HTMX) submit форми — прокидаємо в URL
+     * поточне значення сортування перед відправкою.
+     * Потрібно лише якщо JS вимкнений або форма сабміт-ається класично.
+     */
+    document.getElementById('filterForm')
+        .addEventListener('submit', function () {
+            const params = new URLSearchParams(window.location.search);
+            const sortBy  = document.getElementById('hiddenSortBy');
+            const sortDesc = document.getElementById('hiddenSortDesc');
+            if (params.has('sortBy')   && sortBy)   sortBy.value   = params.get('sortBy');
+            if (params.has('sortDesc') && sortDesc) sortDesc.value = params.get('sortDesc');
+        });
+    </script>
 }

@@ -118,7 +118,7 @@ public sealed class GogClient : IGogClient
                 (originalPrice - discountPrice) / originalPrice, 2
             ) : 0;
 
-            return new StorePriceInfo(originalPrice / 100m, (short)(discountPercent * 100), "US");
+            return new StorePriceInfo(discountPrice / 100m, (short)(discountPercent * 100), "US");
         }
         catch (Exception ex)
         {

@@ -1,16 +1,33 @@
-using System.Numerics;
 using GameDB.Application.DTOs;
 using GameDB.Application.Interfaces;
+using GameDB.Application.Services;
 using GameDB.Domain.Entities;
+using GameDB.Infrastructure.AI;
 using GameDB.Infrastructure.Data;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using Pgvector;
+using Pgvector.EntityFrameworkCore;
+
 namespace GameDB.Web.Controllers;
 
 /// <summary>
-/// REST-ендпоінти виключно для Python LangGraph bot-агента.
+/// REST-ендпоінти виключно для Python LangGraph bot-агента v4.
 /// Авторизація: заголовок X-Bot-Api-Key (значення з конфігурації BotApi:ApiKey).
+///
+/// НОВІ ендпоінти:
+///   GET  /api/bot/users/{userId}/profile   — профіль вподобань + user embedding
+///   POST /api/bot/recommend/hybrid         — гібридний движок рекомендацій
+///   POST /api/bot/feedback                 — зворотній зв'язок (like/dislike)
+///
+/// Збережені ендпоінти:
+///   GET  /api/bot/library/{userId}         — бібліотека + вішліст
+///   GET  /api/bot/catalog                  — пошук у каталозі
+///   POST /api/bot/catalog/semantic         — семантичний пошук (збережений)
+///   GET  /api/bot/metadata                 — жанри та теги
+///   GET  /api/bot/game/{gameId}/price-context
+///   GET  /api/bot/game/{gameId}/details
+///   POST /api/bot/game/{gameId}/embedding  — збереження embedding
+///   POST /api/bot/alerts                   — ціновий алерт
 /// </summary>
 [Route("api/bot")]
 [ApiController]
@@ -19,8 +36,10 @@ public sealed class BotApiController(
     ICatalogRepository        catalog,
     IGameAlertRepository      alertRepo,
     IGameAlertService         alertService,
-    AppDbContext               db,
-    IConfiguration             config) : ControllerBase
+    IUserProfileService       profileService,
+    IRecommendationEngine     recommendationEngine,
+    AppDbContext              db,
+    IConfiguration            config) : ControllerBase
 {
     // ── Auth ──────────────────────────────────────────────────────────────────
 
@@ -28,13 +47,107 @@ public sealed class BotApiController(
         Request.Headers.TryGetValue("X-Bot-Api-Key", out var key)
         && key == config["BotApi:ApiKey"];
 
-    // ── 1. Бібліотека + Вішліст ───────────────────────────────────────────────
+    // ════════════════════════════════════════════════════════════════════════
+    // НОВІ ЕНДПОІНТИ V4
+    // ════════════════════════════════════════════════════════════════════════
+
+    // ── 1. User Preference Profile ────────────────────────────────────────────
 
     /// <summary>
-    /// Повертає власну бібліотеку користувача та його вішліст із поточними цінами.
-    /// Агент використовує ці дані, щоб виключати вже куплені ігри з рекомендацій
-    /// або шукати знижки на ігри зі списку бажаного.
+    /// Повертає профіль вподобань користувача:
+    /// - favoriteGenres / favoriteTags — на основі частоти в бібліотеці
+    /// - topFeatures — теги без базових жанрів
+    /// - ownedGameIds / wishlistGameIds — для виключення та контексту
+    /// - userEmbedding — усереднений L2-нормований вектор бібліотеки
+    ///
+    /// Python: profile_node викликає цей ендпоінт одноразово на початку пайплайну.
     /// </summary>
+    [HttpGet("users/{userId:int}/profile")]
+    public async Task<IActionResult> GetUserProfile(int userId, CancellationToken ct)
+    {
+        if (!IsAuthorized()) return Unauthorized();
+
+        var profile = await profileService.GetProfileAsync(userId, ct);
+        return Ok(profile);
+    }
+
+    // ── 2. Hybrid Recommendation Engine ──────────────────────────────────────
+
+    /// <summary>
+    /// Гібридний движок рекомендацій. LLM НЕ задіяний.
+    ///
+    /// Stage 1: pgvector cosine distance (top 300 candidates)
+    /// Stage 2: hard filters (owned / excluded / price / free / required)
+    /// Stage 3: детермінований scoring за формулою
+    ///          0.35*embSim + 0.30*tagSim + 0.20*genreSim + 0.10*rating + 0.05*pop
+    ///          + feedback_bonus (≤ 0.15)
+    ///
+    /// Python: recommendation_node викликає цей ендпоінт, не LLM.
+    /// </summary>
+    [HttpPost("recommend/hybrid")]
+    public async Task<IActionResult> RecommendHybrid(
+        [FromBody] HybridRecommendRequest req,
+        CancellationToken ct)
+    {
+        if (!IsAuthorized()) return Unauthorized();
+
+        if (req.UserId <= 0)
+            return BadRequest(new { error = "UserId має бути > 0." });
+
+        var results = await recommendationEngine.RecommendHybridAsync(req, ct);
+        return Ok(results);
+    }
+
+    // ── 3. User Feedback (Like / Dislike) ─────────────────────────────────────
+
+    /// <summary>
+    /// Зберігає або оновлює відгук користувача на гру.
+    /// Feedback впливає на feedback_bonus у наступних рекомендаціях.
+    ///
+    /// POST /api/bot/feedback
+    /// { "userId": 1, "gameId": 123, "isLiked": true }
+    /// </summary>
+    [HttpPost("feedback")]
+    public async Task<IActionResult> SubmitFeedback(
+        [FromBody] FeedbackRequest req,
+        CancellationToken ct)
+    {
+        if (!IsAuthorized()) return Unauthorized();
+
+        var existing = await db.Set<UserGameFeedback>()
+            .FirstOrDefaultAsync(f => f.UserId == req.UserId && f.GameId == req.GameId, ct);
+
+        if (existing is null)
+        {
+            db.Set<UserGameFeedback>().Add(new UserGameFeedback
+            {
+                UserId    = req.UserId,
+                GameId    = req.GameId,
+                IsLiked   = req.IsLiked,
+                CreatedAt = DateTime.UtcNow,
+            });
+        }
+        else
+        {
+            existing.IsLiked   = req.IsLiked;
+            existing.CreatedAt = DateTime.UtcNow;
+        }
+
+        await db.SaveChangesAsync(ct);
+
+        return Ok(new
+        {
+            success = true,
+            message = $"Feedback для gameId={req.GameId}: {(req.IsLiked ? "👍 liked" : "👎 disliked")}",
+        });
+    }
+
+    // ════════════════════════════════════════════════════════════════════════
+    // ЗБЕРЕЖЕНІ ЕНДПОІНТИ (без змін)
+    // ════════════════════════════════════════════════════════════════════════
+
+    // ── 4. Library + Wishlist ─────────────────────────────────────────────────
+
     [HttpGet("library/{userId:int}")]
     public async Task<IActionResult> GetLibrary(int userId, CancellationToken ct)
     {
@@ -42,10 +155,8 @@ public sealed class BotApiController(
 
         var wishlist = await collections.GetWishlistAsync(userId, ct);
         var library  = await collections.GetLibraryAsync(userId, ct);
-
         var ownedIds = library.Select(g => g.GameId).Distinct().ToList();
 
-        // Витягуємо ігри бібліотеки з тегами та жанрами для контекстного аналізу
         var ownedGames = await db.Set<Game>()
             .AsNoTracking()
             .Where(g => ownedIds.Contains(g.GameId))
@@ -60,11 +171,9 @@ public sealed class BotApiController(
 
         return Ok(new
         {
-            // Повний список ігор бібліотеки (з жанрами/тегами для рекомендацій)
-            OwnedGames = ownedGames,
-
-            // Вішліст з поточними цінами — агент бачить, чи є знижка
-            WishlistGames = wishlist.Select(g => new
+            OwnedGames      = ownedGames,
+            OwnedGameIds    = ownedIds,
+            WishlistGames   = wishlist.Select(g => new
             {
                 g.GameId,
                 g.Name,
@@ -74,17 +183,12 @@ public sealed class BotApiController(
                 g.Rating,
                 g.AddedAt,
             }),
-
-            // Для швидкого O(1) пошуку «чи є гра у вішліст»
             WishlistGameIds = wishlist.Select(g => g.GameId).Distinct().ToList(),
         });
     }
 
-    // ── 2. Пошук у каталозі ───────────────────────────────────────────────────
+    // ── 5. Catalog Search ─────────────────────────────────────────────────────
 
-    /// <summary>
-    /// Пошук у каталозі з фільтрами. Агент передає розпарсені параметри запиту користувача.
-    /// </summary>
     [HttpGet("catalog")]
     public async Task<IActionResult> SearchCatalog(
         [FromQuery] string?  search,
@@ -104,7 +208,8 @@ public sealed class BotApiController(
         var genreIds = new List<int>();
         if (!string.IsNullOrWhiteSpace(genres))
         {
-            var names = genres.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            var names = genres.Split(',',
+                StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
             genreIds = await db.Set<Genre>()
                 .Where(g => names.Any(n => EF.Functions.ILike(g.Name, $"%{n}%")))
                 .Select(g => g.GenreId)
@@ -114,7 +219,8 @@ public sealed class BotApiController(
         var tagIds = new List<int>();
         if (!string.IsNullOrWhiteSpace(tags))
         {
-            var names = tags.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            var names = tags.Split(',',
+                StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
             tagIds = await db.Set<Tag>()
                 .Where(t => names.Any(n => EF.Functions.ILike(t.Name, $"%{n}%")))
                 .Select(t => t.TagId)
@@ -157,12 +263,57 @@ public sealed class BotApiController(
         });
     }
 
-    // ── 3. Метадані каталогу (жанри та теги) ──────────────────────────────────
+    // ── 6. Semantic Search (збережений, але BAAI/bge-base-en-v1.5 на Python-стороні) ──
 
-    /// <summary>
-    /// Повертає всі доступні жанри та теги. Агент викликає цей ендпоінт одноразово
-    /// при ініціалізації, щоб знати, які значення передавати у фільтри.
-    /// </summary>
+    public record SemanticSearchRequest(
+        float[]  QueryEmbedding,
+        decimal? MaxPrice       = null,
+        bool?    IsFree         = null,
+        string?  ExcludeGameIds = null,
+        int      Limit          = 10);
+
+    [HttpPost("catalog/semantic")]
+    public async Task<IActionResult> SemanticSearch(
+        [FromBody] SemanticSearchRequest req,
+        CancellationToken ct)
+    {
+        if (!IsAuthorized()) return Unauthorized();
+
+        var excludeIds = ParseIds(req.ExcludeGameIds);
+        var embedding  = new Pgvector.Vector(req.QueryEmbedding);
+
+        var query = db.Set<Game>()
+            .Include(g => g.Tags)
+            .Include(g => g.Genres)
+            .AsNoTracking()
+            .Where(g => g.Embedding != null);
+
+        if (excludeIds.Count > 0)
+            query = query.Where(g => !excludeIds.Contains(g.GameId));
+
+        if (req.MaxPrice.HasValue)
+            query = query.Where(g => g.GameExternalIds
+                .Any(ge => ge.GameOffers.Any(o => o.FinalPrice <= req.MaxPrice)));
+
+        var results = await query
+            .OrderBy(g => g.Embedding!.CosineDistance(embedding))
+            .Take(req.Limit)
+            .Select(g => new
+            {
+                g.GameId,
+                g.Name,
+                Genres        = g.Genres.Select(gg => gg.Name).ToList(),
+                Tags          = g.Tags.Select(t => t.Name).Take(10).ToList(),
+                g.Rating,
+                SemanticScore = 1.0 - g.Embedding!.CosineDistance(embedding),
+            })
+            .ToListAsync(ct);
+
+        return Ok(results);
+    }
+
+    // ── 7. Metadata ───────────────────────────────────────────────────────────
+
     [HttpGet("metadata")]
     public async Task<IActionResult> GetMetadata(CancellationToken ct)
     {
@@ -181,17 +332,12 @@ public sealed class BotApiController(
         return Ok(new { Genres = genres, Tags = tags });
     }
 
-    // ── 4. Ціновий контекст гри ───────────────────────────────────────────────
+    // ── 8. Price Context ──────────────────────────────────────────────────────
 
-    /// <summary>
-    /// Поточна ціна, знижка, мінімум за всю історію — все необхідне агенту,
-    /// щоб відповісти на «чи варто купувати зараз?».
-    /// </summary>
     [HttpGet("game/{gameId:int}/price-context")]
     public async Task<IActionResult> GetPriceContext(int gameId, CancellationToken ct)
     {
         if (!IsAuthorized()) return Unauthorized();
-
         try
         {
             var ctx = await alertRepo.GetPriceContextAsync(gameId, userId: null, ct);
@@ -203,12 +349,8 @@ public sealed class BotApiController(
         }
     }
 
-    // ── 5. Повні деталі гри для аналізу агентом ──────────────────────────────
+    // ── 9. Game Details ───────────────────────────────────────────────────────
 
-    /// <summary>
-    /// Детальна інформація про гру: жанри, теги, всі оффери по магазинах.
-    /// Використовується для глибокого аналізу конкретної гри.
-    /// </summary>
     [HttpGet("game/{gameId:int}/details")]
     public async Task<IActionResult> GetGameDetails(int gameId, CancellationToken ct)
     {
@@ -230,7 +372,7 @@ public sealed class BotApiController(
         var offers = game.GameExternalIds
             .SelectMany(ge => ge.GameOffers.Select(o => new
             {
-                ShopName   = ge.Shop?.Name ?? "Unknown",   // FIX: null-safe
+                ShopName   = ge.Shop?.Name ?? "Unknown",
                 FinalPrice = o.FinalPrice,
                 BasePrice  = o.CurrentPrice,
                 Discount   = o.CurrentDiscount,
@@ -243,261 +385,16 @@ public sealed class BotApiController(
         {
             game.GameId,
             game.Name,
-            Genres = game.Genres.Select(gg => gg.Name).OrderBy(n => n).ToList(),
-            Tags   = game.Tags.Select(gt => gt.Name).OrderBy(n => n).ToList(),
+            Genres      = game.Genres.Select(gg => gg.Name).OrderBy(n => n).ToList(),
+            Tags        = game.Tags.Select(gt => gt.Name).OrderBy(n => n).ToList(),
             game.Rating,
-            Offers = offers,
+            Description = game.Description,
+            Offers      = offers,
         });
     }
 
-    // ── 6. Рекомендації з ваговим скорингом ───────────────────────────────────
+    // ── 10. Save Embedding ────────────────────────────────────────────────────
 
-    // ── 6. Рекомендації з ваговим скорингом ───────────────────────────────────
-
-    /// <summary>
-    /// Повертає схожі ігри на основі вагового скорингу по тегах і жанрах.
-    /// </summary>
-    [HttpGet("catalog/recommend")]
-    public async Task<IActionResult> GetRecommendations(
-        [FromQuery] string?  referenceGameIds,
-        [FromQuery] string?  excludeGameIds,   // ← НОВЕ: список ігор для жорсткого ігнору (наприклад, вже куплені)
-        [FromQuery] string?  boostTags,
-        [FromQuery] string?  boostGenres,
-        [FromQuery] string?  excludeTags,
-        [FromQuery] string?  excludeGenres,
-        [FromQuery] string?  reqiredGenres,
-        [FromQuery] string?  reqiredTags,
-        [FromQuery] float?   minRating,
-        [FromQuery] decimal? maxPrice,
-        [FromQuery] bool?    isFree,
-        [FromQuery] int      limit = 10,
-        CancellationToken    ct    = default)
-    {
-        if (!IsAuthorized()) return Unauthorized();
-
-        static HashSet<string> Csv(string? s) =>
-            string.IsNullOrWhiteSpace(s) ? []
-            : s.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-               .ToHashSet(StringComparer.OrdinalIgnoreCase);
-
-        var boostTagSet     = Csv(boostTags);
-        var boostGenreSet   = Csv(boostGenres);
-        var excludeTagSet   = Csv(excludeTags);
-        var excludeGenreSet = Csv(excludeGenres);
-        var reqTagSet       = Csv(reqiredTags);
-        var reqGenreSet     = Csv(reqiredGenres);
-
-        // ── Крок 1: базові теги/жанри з референсних ігор ──────────────────────
-
-        var baseTagNames   = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var baseGenreNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-        var refGameIds = new List<int>();
-        if (!string.IsNullOrWhiteSpace(referenceGameIds))
-        {
-            refGameIds = referenceGameIds.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-                .Select(s => int.TryParse(s, out var id) ? id : (int?)null)
-                .Where(id => id.HasValue)
-                .Select(id => id!.Value)
-                .ToList();
-        }
-
-        if (refGameIds.Count > 0)
-        {
-            var refGames = await db.Set<Game>()
-                .Include(g => g.Tags)
-                .Include(g => g.Genres)
-                .AsNoTracking()
-                .Where(g => refGameIds.Contains(g.GameId))
-                .ToListAsync(ct);
-
-            foreach (var refGame in refGames)
-            {
-                foreach (var tag   in refGame.Tags)   baseTagNames.Add(tag.Name);
-                foreach (var genre in refGame.Genres)  baseGenreNames.Add(genre.Name);
-            }
-        }
-
-        // ── Крок 1.Б: Парсинг ігор для виключення (Куплені/Owned) ──────────────
-
-        var exGameIds = new List<int>(); // ← НОВЕ
-        if (!string.IsNullOrWhiteSpace(excludeGameIds))
-        {
-            exGameIds = excludeGameIds.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-                .Select(s => int.TryParse(s, out var id) ? id : (int?)null)
-                .Where(id => id.HasValue)
-                .Select(id => id!.Value)
-                .ToList();
-        }
-
-        var allTargetTagNames = baseTagNames
-            .Union(boostTagSet, StringComparer.OrdinalIgnoreCase)
-            .Except(excludeTagSet, StringComparer.OrdinalIgnoreCase)
-            .ToList();
-
-        var allTargetGenreNames = baseGenreNames
-            .Union(boostGenreSet, StringComparer.OrdinalIgnoreCase)
-            .Except(excludeGenreSet, StringComparer.OrdinalIgnoreCase)
-            .ToList();
-
-        // ── Крок 2: теги/жанри → словники {Id → isBoosted} для скорингу ──────
-
-        var tagMap   = new Dictionary<int, bool>();
-        var genreMap = new Dictionary<int, bool>();
-
-        if (allTargetTagNames.Count > 0)
-        {
-            var dbTags = await db.Set<Tag>().Select(t => new { t.TagId, t.Name }).ToListAsync(ct);
-            foreach (var r in dbTags.Where(t => allTargetTagNames.Any(n => t.Name.Contains(n, StringComparison.OrdinalIgnoreCase))))
-            {
-                tagMap[r.TagId] = boostTagSet.Any(b => r.Name.Contains(b, StringComparison.OrdinalIgnoreCase));
-            }
-        }
-
-        if (allTargetGenreNames.Count > 0)
-        {
-            var dbGenres = await db.Set<Genre>().Select(g => new { g.GenreId, g.Name }).ToListAsync(ct);
-            foreach (var r in dbGenres.Where(g => allTargetGenreNames.Any(n => g.Name.Contains(n, StringComparison.OrdinalIgnoreCase))))
-            {
-                genreMap[r.GenreId] = boostGenreSet.Any(b => r.Name.Contains(b, StringComparison.OrdinalIgnoreCase));
-            }
-        }
-
-        // ── Крок 3: ID для жорсткого виключення по тегах/жанрах ──────────────
-
-        var excludeTagIds = new List<int>();
-        if (excludeTagSet.Count > 0)
-        {
-            var dbTags = await db.Set<Tag>().Select(t => new { t.TagId, t.Name }).ToListAsync(ct);
-            excludeTagIds = dbTags.Where(t => excludeTagSet.Any(n => t.Name.Contains(n, StringComparison.OrdinalIgnoreCase))).Select(t => t.TagId).ToList();
-        }
-
-        var excludeGenreIds = new List<int>();
-        if (excludeGenreSet.Count > 0)
-        {
-            var dbGenres = await db.Set<Genre>().Select(g => new { g.GenreId, g.Name }).ToListAsync(ct);
-            excludeGenreIds = dbGenres.Where(g => excludeGenreSet.Any(n => g.Name.Contains(n, StringComparison.OrdinalIgnoreCase))).Select(g => g.GenreId).ToList();
-        }
-
-        // ── Крок 4: ID для обов'язкових тегів/жанрів (required) ──────────────
-
-        var requiredTagIds = new List<int>();
-        if (reqTagSet.Count > 0)
-        {
-            var dbTags = await db.Set<Tag>().Select(t => new { t.TagId, t.Name }).ToListAsync(ct);
-            requiredTagIds = dbTags.Where(t => reqTagSet.Any(n => t.Name.Contains(n, StringComparison.OrdinalIgnoreCase))).Select(t => t.TagId).ToList();
-        }
-
-        var requiredGenreIds = new List<int>();
-        if (reqGenreSet.Count > 0)
-        {
-            var dbGenres = await db.Set<Genre>().Select(g => new { g.GenreId, g.Name }).ToListAsync(ct);
-            requiredGenreIds = dbGenres.Where(g => reqGenreSet.Any(n => g.Name.Contains(n, StringComparison.OrdinalIgnoreCase))).Select(g => g.GenreId).ToList();
-        }
-
-        limit = Math.Clamp(limit, 1, 20);
-
-        // ── Крок 5: формуємо базовий запит ───────────────────────────────────
-
-        IQueryable<Game> q = db.Set<Game>()
-            .Include(g => g.Tags)
-            .Include(g => g.Genres)
-            .Include(g => g.GameExternalIds).ThenInclude(ge => ge.GameOffers)
-            .Include(g => g.GameExternalIds).ThenInclude(ge => ge.Shop)
-            .AsNoTracking();
-
-        // Виключаємо ігри-референси з видачі
-        if (refGameIds.Count > 0)
-            q = q.Where(g => !refGameIds.Contains(g.GameId));
-
-        // Жорстке виключення вже куплених ігор користувача (Owned Games)
-        if (exGameIds.Count > 0) // ← НОВЕ
-            q = q.Where(g => !exGameIds.Contains(g.GameId));
-
-        // Фільтрація за небажаними тегами/жанрами
-        if (excludeTagIds.Count > 0) q = q.Where(g => !g.Tags.Any(t => excludeTagIds.Contains(t.TagId)));
-        if (excludeGenreIds.Count > 0) q = q.Where(g => !g.Genres.Any(gg => excludeGenreIds.Contains(gg.GenreId)));
-
-        // Обов'язкові фільтри (AND)
-        foreach (var reqTagId in requiredTagIds) { var id = reqTagId; q = q.Where(g => g.Tags.Any(t => t.TagId == id)); }
-        foreach (var reqGenreId in requiredGenreIds) { var id = reqGenreId; q = q.Where(g => g.Genres.Any(gg => gg.GenreId == id)); }
-
-        // Цінові фільтри та рейтинг
-        if (isFree.HasValue)
-        {
-            q = isFree.Value
-                ? q.Where(g => g.GameExternalIds.Any(ge => ge.GameOffers.Any(o => o.FinalPrice == 0)))
-                : q.Where(g => g.GameExternalIds.Any(ge => ge.GameOffers.Any(o => o.FinalPrice > 0)));
-        }
-
-        if (minRating.HasValue) q = q.Where(g => g.Rating >= (double)minRating.Value);
-        if (maxPrice.HasValue) q = q.Where(g => g.GameExternalIds.Any(ge => ge.GameOffers.Any(o => o.FinalPrice > 0 && o.FinalPrice <= maxPrice.Value)));
-
-        if (tagMap.Count > 0 || genreMap.Count > 0)
-        {
-            var targetTagIds   = tagMap.Keys.ToList();
-            var targetGenreIds = genreMap.Keys.ToList();
-            q = q.Where(g => g.Tags.Any(t => targetTagIds.Contains(t.TagId)) || g.Genres.Any(gg => targetGenreIds.Contains(gg.GenreId)));
-        }
-
-        var candidates = await q.Take(300).ToListAsync(ct);
-
-        // ── Крок 6: ваговий скоринг in-memory ────────────────────────────────
-
-        const double W_TAG_BASE    = 1.0;
-        const double W_TAG_BOOST   = 2.5;
-        const double W_GENRE_BASE  = 1.5;
-        const double W_GENRE_BOOST = 3.5;
-        const double W_RATING      = 0.1;
-
-        var scored = candidates
-            .Select(g =>
-            {
-                var score = 0.0;
-                foreach (var tag in g.Tags) if (tagMap.TryGetValue(tag.TagId, out var b)) score += b ? W_TAG_BOOST : W_TAG_BASE;
-                foreach (var genre in g.Genres) if (genreMap.TryGetValue(genre.GenreId, out var b)) score += b ? W_GENRE_BOOST : W_GENRE_BASE;
-                if (g.Rating > 0) score += g.Rating.Value * W_RATING;
-                return (Game: g, Score: score);
-            })
-            .Where(x => x.Score > 0)
-            .OrderByDescending(x => x.Score)
-            .Take(limit)
-            .ToList();
-
-        return Ok(scored.Select(x =>
-        {
-            var g = x.Game;
-            var bestOfferData = g.GameExternalIds
-                .SelectMany(ge => ge.GameOffers.Select(o => new { Offer = o, ShopName = ge.Shop?.Name }))
-                .Where(od => od.Offer.FinalPrice.HasValue)
-                .MinBy(od => od.Offer.FinalPrice);
-
-            return new
-            {
-                g.GameId,
-                g.Name,
-                Genres          = g.Genres.Select(gg => gg.Name).ToList(),
-                Tags            = g.Tags.Select(gt => gt.Name).Take(12).ToList(),
-                g.Rating,
-                IsFree          = bestOfferData is { Offer.FinalPrice: 0 },
-                BestPrice       = bestOfferData?.Offer.FinalPrice,
-                Currency        = bestOfferData?.Offer.Currency,
-                ShopName        = bestOfferData?.ShopName,
-                SimilarityScore = Math.Round(x.Score, 2),
-            };
-        }));
-    }
-
-    // ── 8. Збереження векторного ембеддінгу ──────────────────────────────────
-
-    /// <summary>
-    /// Отримує згенерований Python-скриптом вектор (embedding) і зберігає його в БД для гри.
-    /// </summary>
-    // ── 8. Збереження векторного ембеддінгу (pgvector) ──────────────────────
-
-    /// <summary>
-    /// Отримує згенерований Python-скриптом список float і зберігає як Pgvector.Vector.
-    /// </summary>
     public record SaveEmbeddingRequest(List<float> Embedding);
 
     [HttpPost("game/{gameId:int}/embedding")]
@@ -508,36 +405,27 @@ public sealed class BotApiController(
     {
         if (!IsAuthorized()) return Unauthorized();
 
-        if (req.Embedding == null || req.Embedding.Count == 0)
+        if (req.Embedding is not { Count: > 0 })
             return BadRequest(new { error = "Вектор ембеддінгу не може бути порожнім." });
 
-        // Шукаємо гру в базі даних
         var game = await db.Set<Game>()
             .FirstOrDefaultAsync(g => g.GameId == gameId, ct);
 
         if (game is null)
             return NotFound(new { error = $"Гру GameId={gameId} не знайдено." });
 
-        // Перетворюємо List<float> з Python у структуру Pgvector.Vector
-        // Якщо у вас виникне помилка компіляції, перевірте чи підключено namespace (наприклад, за допомогою new Pgvector.Vector(...))
-        game.Embedding = new Pgvector.Vector(req.Embedding.ToArray()); 
-
-        // Зберігаємо зміни в БД
+        game.Embedding = new Pgvector.Vector(req.Embedding.ToArray());
         await db.SaveChangesAsync(ct);
 
         return Ok(new
         {
             success = true,
-            message = $"Ембеддінг для гри #{gameId} ({game.Name}) успішно збережено в pgvector."
+            message = $"Embedding для гри #{gameId} ({game.Name}) збережено.",
         });
     }
 
-    // ── 7. Створення / оновлення цінового алерту ──────────────────────────────
+    // ── 11. Price Alert ───────────────────────────────────────────────────────
 
-    /// <summary>
-    /// Створює або оновлює ціновий алерт для конкретного користувача.
-    /// Агент викликає після того, як визначив цільову ціну.
-    /// </summary>
     public record CreateBotAlertRequest(
         int     UserId,
         int     GameId,
@@ -573,5 +461,18 @@ public sealed class BotApiController(
         {
             return BadRequest(new { error = ex.Message });
         }
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private static List<int> ParseIds(string? csv)
+    {
+        if (string.IsNullOrWhiteSpace(csv)) return [];
+        return csv
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(s => int.TryParse(s, out var id) ? id : (int?)null)
+            .Where(id => id.HasValue)
+            .Select(id => id!.Value)
+            .ToList();
     }
 }

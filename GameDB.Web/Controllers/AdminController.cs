@@ -59,26 +59,9 @@ public class AdminController : ControllerBase
         return Ok(new { message = "Збагачення зупинено." });
     }
 
-    [HttpPost("import/details/start")]
-    [ValidateAntiForgeryToken]
-    public IActionResult StartDetailsLegacy([FromQuery] bool overwrite = false)
-    {
-        _admin.StartEnrichmentImport(overwrite);
-        return Accepted(new { message = "Збагачення запущено." });
-    }
-
-    [HttpPost("import/details/stop")]
-    [ValidateAntiForgeryToken]
-    public IActionResult StopDetails()
-    {
-        _admin.StopEnrichmentImport();
-        return Ok(new { message = "Збагачення зупинено." });
-    }
-
     [HttpPost("import/prices/start")]
     [ValidateAntiForgeryToken]
     public IActionResult StartPrices(
-        [FromQuery] string? provider,
         [FromQuery] int batchSize = 100,
         [FromQuery] DateTime? notSyncedSince = null)
     {

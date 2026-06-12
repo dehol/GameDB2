@@ -1,3 +1,4 @@
+using System.Globalization;
 using GameDB.Application.Constants;
 using GameDB.Application.DTOs.Store;
 using GameDB.Application.Interfaces;
@@ -18,7 +19,6 @@ public sealed class SteamStoreProvider(
 
     public int    ShopId                 => ShopIds.Steam;
     public string Slug                   => "steam";
-    public int    DelayBetweenRequestsMs => _opts.DelayBetweenRequestsMs;
 
     public async Task<IReadOnlyCollection<StoreGameListItem>> GetGameListAsync(CancellationToken ct)
     {
@@ -92,11 +92,23 @@ public sealed class SteamStoreProvider(
     private static string? NoneToNull(string? s)
         => string.IsNullOrWhiteSpace(s) || s.Equals("none", StringComparison.OrdinalIgnoreCase) ? null : s;
 
-    private static bool TryParsePrice(string? priceCents, out decimal price)
+    private static bool TryParsePrice(string? raw, out decimal price)
     {
         price = 0;
-        if (!int.TryParse(priceCents, out var cents)) return false;
-        price = cents / 100m;
-        return true;
+        if (string.IsNullOrWhiteSpace(raw)) return false;
+
+        if (int.TryParse(raw, out var cents))
+        {
+            price = cents / 100m;
+            return true;
+        }
+
+        if (decimal.TryParse(raw, NumberStyles.Number, CultureInfo.InvariantCulture, out var amount))
+        {
+            price = amount;
+            return true;
+        }
+
+        return false;
     }
 }

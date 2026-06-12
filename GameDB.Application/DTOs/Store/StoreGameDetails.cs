@@ -13,4 +13,10 @@ public sealed class StoreGameDetails
     public string?         HeaderImageUrl { get; init; }
     public string?         IconImageUrl   { get; init; }
     public string?         StoreUrl       { get; init; }
+
+    /// <summary>
+    /// Опис гри від постачальника. Може містити HTML-розмітку (Steam/GOG).
+    /// Null якщо постачальник не повертає опис (наприклад SteamSpy).
+    /// </summary>
+    public string?         Description    { get; init; }
 }

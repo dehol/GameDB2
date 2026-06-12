@@ -104,6 +104,7 @@ public class DetailsModel : PageModel
             return NotFound();
 
         Game = game;
+        SanitizedDescription = _descriptionSanitizer.Sanitize(game.Description);
         PriceHistory = await _catalog.GetPriceHistoryAsync(id);
         IsRegisteredUser = User.IsInRole("User");
 

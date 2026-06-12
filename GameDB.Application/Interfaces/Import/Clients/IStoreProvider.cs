@@ -9,7 +9,6 @@ public interface IStoreProvider
 {
     int    ShopId                  { get; }
     string Slug                    { get; }
-    int    DelayBetweenRequestsMs  { get; }
 
     Task<IReadOnlyCollection<StoreGameListItem>> GetGameListAsync(CancellationToken ct);
     bool IsValidItem(StoreGameListItem item);

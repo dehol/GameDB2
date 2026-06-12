@@ -30,6 +30,10 @@ public sealed class StoreGameMapper
         if (overwriteExisting || string.IsNullOrWhiteSpace(game.IconImage))
             game.IconImage = details.IconImageUrl;
 
+        // Description: зберігаємо якщо ще немає або примусово перезаписуємо
+        if (overwriteExisting || string.IsNullOrWhiteSpace(game.Description))
+            game.Description = details.Description;
+
         if (details.Rating.HasValue && (overwriteExisting || game.Rating is null))
             game.Rating = details.Rating;
 

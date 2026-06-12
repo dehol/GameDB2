@@ -28,18 +28,18 @@ public sealed class SteamSpyClient : ISteamSpyClient
     public async Task<SteamSpyAppDetailsDto?> GetAppDetailsAsync(
         int appId, CancellationToken ct = default)
     {
-        var url      = $"{_baseUrl.TrimEnd('/')}?request=appdetails&appid={appId}";
-        var response = await _httpClient.GetAsync(url, ct);
-
-        if (!response.IsSuccessStatusCode)
-            return null;
-
-        var json = await response.Content.ReadAsStringAsync(ct);
-        if (string.IsNullOrWhiteSpace(json) || json == "null")
-            return null;
-
         try
         {
+            var url      = $"{_baseUrl.TrimEnd('/')}?request=appdetails&appid={appId}";
+            var response = await _httpClient.GetAsync(url, ct);
+
+            if (!response.IsSuccessStatusCode)
+                return null;
+
+            var json = await response.Content.ReadAsStringAsync(ct);
+            if (string.IsNullOrWhiteSpace(json) || json == "null")
+                return null;
+
             json = json.Replace("\"tags\":[]", "\"tags\":null");
             return JsonSerializer.Deserialize<SteamSpyAppDetailsDto>(json, JsonOpts);
         }
@@ -47,6 +47,11 @@ public sealed class SteamSpyClient : ISteamSpyClient
         {
             _logger.LogWarning(ex,
                 "SteamSpy: не зміг розпарсити відповідь для AppId={AppId}", appId);
+            return null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "SteamSpy: помилка запиту для AppId={AppId}", appId);
             return null;
         }
     }

@@ -17,7 +17,7 @@ namespace GameDB.Application.Services.Import;
 public sealed class PriceSyncService(
     IServiceScopeFactory scopeFactory,
     IEnumerable<IStoreProvider> providers,
-    IPriceManagerService priceManager,
+    IGameOfferRepository        offerRepository,
     PriceSyncOperationState state,
     ILogger<PriceSyncService> logger) : IPriceSyncService
 {
@@ -27,9 +27,13 @@ public sealed class PriceSyncService(
     // InvisibilityTimeout у PostgreSqlStorageOptions повинен бути БІЛЬШИМ за це значення.
     private static readonly TimeSpan ProviderTimeout = TimeSpan.FromHours(6);
 
+    // Обмежує паралельні HTTP-запити в одному батчі — уникнення circuit breaker SteamSpy.
+    private const int MaxParallelPriceFetches = 15;
+
     public PriceSyncOperationState State => state;
 
     // ── Ручний запуск (legacy, один job для всіх) ─────────────────────────────
+
     public async Task RunPriceSyncJobAsync(string? providerSlug, CancellationToken ct)
     {
         if (!state.TryStart())
@@ -41,15 +45,14 @@ public sealed class PriceSyncService(
         try
         {
             var active = GetProviders(providerSlug);
-            var total  = await CountGamesAsync(ct);
 
-            state.ResetProgress(total, providerSlug ?? "Всі магазини", "Синхронізація цін");
+            // Total = 0: кожен провайдер додасть свою кількість через AddToTotal
+            state.ResetProgress(0, providerSlug ?? "Всі магазини", "Синхронізація цін");
 
             logger.LogInformation(
-                "Синхронізація цін (legacy): {Count} провайдерів, ~{Total} ігор — паралельно",
-                active.Count, total);
+                "Синхронізація цін (legacy): {Count} провайдерів — паралельно",
+                active.Count);
 
-            // Паралельний запуск і в legacy-методі
             await Task.WhenAll(active.Select(p => RunProviderInternalAsync(p, ct)));
 
             var msg = $"Завершено. Оновлено: {state.Processed}, Помилок: {state.Failed}";
@@ -68,9 +71,9 @@ public sealed class PriceSyncService(
         }
     }
 
-    // ── Запуск одного провайдера (новий шлях через Hangfire) ─────────────────
+    // ── Запуск одного провайдера (основний шлях через Hangfire) ──────────────
     // CancellationToken.None у Enqueue — Hangfire замінює на ShutdownToken при виконанні.
-    // Всередині додаємо жорсткий таймаут через LinkedCts.
+
     public async Task SyncProviderAsync(string providerSlug, CancellationToken ct)
     {
         var provider = _providers.FirstOrDefault(p =>
@@ -82,7 +85,6 @@ public sealed class PriceSyncService(
                 "Provider не знайдено: '{Slug}'. Доступні: {All}",
                 providerSlug,
                 string.Join(", ", _providers.Select(p => p.Slug)));
-            // Все одно зменшуємо лічильник — провайдер "завершив" з помилкою
             if (state.NotifyProviderFinished())
                 state.MarkFinished($"Помилка: провайдер '{providerSlug}' не знайдено.");
             return;
@@ -90,13 +92,12 @@ public sealed class PriceSyncService(
 
         // Лінкуємо 3 джерела скасування:
         //   ct              — Hangfire ShutdownToken (зупинка сервера)
-        //   timeoutCts      — наш жорсткий ліміт 6 год
+        //   timeoutCts      — жорсткий ліміт 6 год на провайдер
         //   state.StopToken — кнопка "Stop" в адмін-панелі
         using var timeoutCts = new CancellationTokenSource(ProviderTimeout);
         using var linkedCts  = CancellationTokenSource.CreateLinkedTokenSource(
             ct, timeoutCts.Token, state.StopToken);
 
-        // Сигналізуємо UI що цей провайдер починає (для рядка CurrentProvider)
         state.NotifyProviderStarted(providerSlug);
 
         try
@@ -112,8 +113,7 @@ public sealed class PriceSyncService(
         }
         finally
         {
-            // Останній провайдер що завершився (незалежно від успіху/помилки)
-            // оновлює загальний стан → UI показує підсумок
+            // Останній провайдер що завершився оновлює загальний стан → UI показує підсумок
             if (state.NotifyProviderFinished())
             {
                 var summary = $"Синхронізацію завершено. Оновлено: {state.Processed}, Помилок: {state.Failed}";
@@ -121,39 +121,43 @@ public sealed class PriceSyncService(
                 logger.LogInformation("✅ Всі провайдери завершено. {Summary}", summary);
             }
         }
-        // OperationCanceledException через Hangfire ShutdownToken —
-        // Hangfire сам перенесе job в Scheduled для наступного запуску.
     }
 
     // ── Спільна логіка для обох точок входу ──────────────────────────────────
+
     private async Task RunProviderInternalAsync(IStoreProvider provider, CancellationToken ct)
     {
         const int batchSize = 100;
-        int skip             = 0;
-        int providerUpdated  = 0;
-        int providerSkipped  = 0;
-        int providerFailed   = 0;
-        var sw               = Stopwatch.StartNew();
+        int skip            = 0;
+        int providerUpdated = 0;
+        int providerSkipped = 0;
+        int providerFailed  = 0;
+        var sw              = Stopwatch.StartNew();
 
         logger.LogInformation("[{Slug}] ▶ Синхронізація цін починається", provider.Slug);
 
-        // ВАЖЛИВО: тут тільки ct, не state.IsRunning.
-        // SyncProviderAsync не викликає TryStart() → IsRunning завжди false для Hangfire-шляху.
         // Зупинка через кнопку "Stop" — state.StopToken скасовує ct через LinkedCts у SyncProviderAsync.
+        // IsRunning не перевіряється: SyncProviderAsync не викликає TryStart(),
+        // тому IsRunning = false для Hangfire-шляху завжди.
         while (!ct.IsCancellationRequested)
         {
             List<Game> batch;
-            int totalInRepo;
             using (var scope = scopeFactory.CreateScope())
             {
-                var repo     = scope.ServiceProvider.GetRequiredService<IGameRepository>();
-                batch        = await repo.GetGamesBatchFromShopAsync(skip, batchSize, provider.ShopId, ct);
-                totalInRepo  = skip == 0 ? await repo.GetTotalGamesCountAsync(ct) : 0;
-            }
+                var repo = scope.ServiceProvider.GetRequiredService<IGameRepository>();
 
-            // Перший батч — додаємо кількість ігор провайдера до загального Total для прогрес-бару
-            if (skip == 0 && totalInRepo > 0)
-                state.AddToTotal(totalInRepo);
+                batch = await repo.GetGamesBatchFromShopAsync(skip, batchSize, provider.ShopId, ct);
+
+                // Перший батч: реєструємо кількість ігор цього магазину для прогрес-бару.
+                // Використовуємо shop-specific count, щоб паралельні провайдери
+                // не зараховували загальний Total тричі.
+                if (skip == 0)
+                {
+                    var shopCount = await repo.GetGameCountByShopAsync(provider.ShopId, ct);
+                    if (shopCount > 0)
+                        state.AddToTotal(shopCount);
+                }
+            }
 
             if (batch.Count == 0) break;
 
@@ -184,10 +188,11 @@ public sealed class PriceSyncService(
     }
 
     // ── Обробка одного батчу ──────────────────────────────────────────────────
+
     private async Task<(int updated, int skipped, int failed)> ProcessBatchAsync(
-        IStoreProvider provider,
-        IReadOnlyCollection<Game> batch,
-        CancellationToken ct)
+    IStoreProvider provider,
+    IReadOnlyCollection<Game> batch,
+    CancellationToken ct)
     {
         var pairs = batch
             .SelectMany(g => g.GameExternalIds
@@ -195,85 +200,94 @@ public sealed class PriceSyncService(
                 .Select(e => (Game: g, ExternalIdRecord: e)))
             .ToList();
 
-        // ── Фаза 1: паралельний fetch цін ─────────────────────────────────────
-        // ConcurrencyLimiter в Polly pipeline контролює скільки HTTP-запитів
-        // одночасно йде через клієнт — DelayBetweenRequestsMs між запитами більше
-        // не потрібен, throttling тепер через Polly.
-        //
-        // Не-скасувальні виключення захоплюються в tuple.Error — Task.WhenAll
-        // завершується повністю, а не зупиняється на першій помилці.
+        // ── Фаза 1: паралельний HTTP з обмеженням ────────────────────────────────
+        using var fetchGate = new SemaphoreSlim(MaxParallelPriceFetches);
+
         var fetchTasks = pairs.Select(async pair =>
         {
-            ct.ThrowIfCancellationRequested();
+            await fetchGate.WaitAsync(ct);
             try
             {
-                var price = await provider.GetPriceAsync(pair.ExternalIdRecord.ExternalId, ct);
-                return (RecordId: pair.ExternalIdRecord.Id, Price: price, Error: (Exception?)null);
+                ct.ThrowIfCancellationRequested();
+                try
+                {
+                    var price = await provider.GetPriceAsync(pair.ExternalIdRecord.ExternalId, ct);
+                    return (RecordId: pair.ExternalIdRecord.Id, Price: price, Error: (Exception?)null);
+                }
+                catch (OperationCanceledException) { throw; }
+                catch (Exception ex)
+                {
+                    return (RecordId: pair.ExternalIdRecord.Id, Price: (StorePriceInfo?)null, Error: ex);
+                }
             }
-            catch (OperationCanceledException)
+            finally
             {
-                throw; // пробрасуємо — це сигнал зупинки, не помилка провайдера
-            }
-            catch (Exception ex)
-            {
-                return (RecordId: pair.ExternalIdRecord.Id, Price: (StorePriceInfo?)null, Error: ex);
+                fetchGate.Release();
             }
         });
 
         var results = await Task.WhenAll(fetchTasks);
 
-        // ── Фаза 2: послідовне збереження ─────────────────────────────────────
-        // DbContext не thread-safe — зберігаємо послідовно.
-        // DB-операції швидкі (прості UPDATE), вузьке місце було в HTTP — його вже вирішено.
-        int updated = 0, skipped = 0, failed = 0;
+        // ── Фаза 2: BULK запис ────────────────────────────────────────────────────
 
-        foreach (var (recordId, price, error) in results)
+        // Розбиваємо результати на три категорії
+        var toProcess = results.Where(r => r.Error is null && r.Price is not null).ToList();
+        var failed    = results.Count(r => r.Error is not null);
+        var skipped   = results.Count(r => r.Error is null && r.Price is null);
+
+        if (toProcess.Count == 0)
         {
-            ct.ThrowIfCancellationRequested();
-
-            if (error is not null)
-            {
-                state.IncrementFailed();
-                failed++;
-                logger.LogWarning(
-                    "[{Slug}] Не вдалося отримати ціну для {Id}: {Message}",
-                    provider.Slug, recordId, error.Message);
-                continue;
-            }
-
-            if (price is null)
-            {
-                // Гра є в БД, але ціна недоступна (регіон, знята з продажу тощо)
-                skipped++;
-                continue;
-            }
-
-            await priceManager.ProcessPriceUpdateAsync(
-                externalIdRecordId: recordId,
-                newPrice:           price.Price,
-                newDiscount:        price.Discount,
-                currency:           price.Currency,
-                ct:                 ct);
-
-            state.IncrementProcessed();
-            updated++;
+            state.AddFailed(failed);
+            return (0, skipped, failed);
         }
+
+        // 1 SELECT для всіх успішних результатів
+        var recordIds       = toProcess.Select(r => r.RecordId).ToList();
+        var existingOffers  = await offerRepository.GetBulkByExternalIdRecordsAsync(recordIds, ct);
+
+        var toAdd    = new List<GameOffer>();
+        var toUpdate = new List<GameOffer>();
+
+        foreach (var (recordId, price, _) in toProcess)
+        {
+            if (existingOffers.TryGetValue(recordId, out var existing))
+            {
+                // Оновлюємо поля прямо на об'єкті — EF Core відстежує зміни
+                existing.CurrentPrice    = price!.Price;
+                existing.CurrentDiscount = price.Discount;
+                existing.Currency        = price.Currency;
+                existing.LastSyncedAt    = DateTime.UtcNow;
+                toUpdate.Add(existing);
+            }
+            else
+            {
+                toAdd.Add(new GameOffer
+                {
+                    ExternalId      = recordId,
+                    CurrentPrice    = price!.Price,
+                    CurrentDiscount = price.Discount,
+                    Currency        = price.Currency,
+                    LastSyncedAt    = DateTime.UtcNow,
+                });
+            }
+        }
+
+        // 1 SaveChangesAsync для всіх INSERT + UPDATE разом
+        await offerRepository.BulkUpsertAsync(toAdd, toUpdate, ct);
+
+        var updated = toProcess.Count;
+        state.AddToProcessed(updated);
+        state.AddFailed(failed);
 
         return (updated, skipped, failed);
     }
 
     // ── Хелпери ───────────────────────────────────────────────────────────────
+
     private IReadOnlyList<IStoreProvider> GetProviders(string? slug)
         => string.IsNullOrEmpty(slug)
             ? _providers
             : _providers
                 .Where(p => p.Slug.Equals(slug, StringComparison.OrdinalIgnoreCase))
                 .ToList();
-
-    private async Task<int> CountGamesAsync(CancellationToken ct)
-    {
-        using var scope = scopeFactory.CreateScope();
-        var repo = scope.ServiceProvider.GetRequiredService<IGameRepository>();
-        return await repo.GetTotalGamesCountAsync(ct);
-    }
 }

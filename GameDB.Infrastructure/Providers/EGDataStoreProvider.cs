@@ -93,19 +93,12 @@ public sealed class EGDataStoreProvider(
             RatingCount    = null,
             HeaderImageUrl = FindImage(dto, "DieselStoreFrontTall", "OfferImageTall"),
             IconImageUrl   = FindImage(dto, "DieselGameBoxTall", "Thumbnail"),
+            Description    = NullIfEmpty(dto.Description),
         };
     }
 
-    public async Task<StorePriceInfo?> GetPriceAsync(string externalId, CancellationToken ct)
-    {
-        var dto = await client.GetItemPriceAsync(externalId, ct);
-        if (dto?.Price is null) return null;
-
-        var price    = dto.Price;
-        var discount = dto.Discount;
-        var currency = dto.Currency;
-        return new StorePriceInfo(price, discount, currency);
-    }
+    public Task<StorePriceInfo?> GetPriceAsync(string externalId, CancellationToken ct)
+        => client.GetItemPriceAsync(externalId, ct);
 
     public string BuildOfferUrl(string slugOrId)
         => $"https://store.epicgames.com/en-US/p/{slugOrId}";

@@ -23,8 +23,7 @@ public sealed class GogStoreProvider(
     {
         var result  = new List<StoreGameListItem>();
         var seenIds = new HashSet<string>();
-
-        string cursor = "0";
+        var cursor  = "0";
 
         while (true)
         {
@@ -66,9 +65,7 @@ public sealed class GogStoreProvider(
             if (string.IsNullOrWhiteSpace(p.Id) || !seenIds.Add(p.Id)) continue;
             if (!string.IsNullOrWhiteSpace(p.Title))
             {
-                logger.LogInformation(p.Title);
-                // FIX: передаємо p.Slug як третій аргумент — він буде використаний
-                //      в BuildExternalUrl для побудови правильного URL (/game/{slug})
+                logger.LogInformation("[GOG] Processing: {Title}", p.Title);
                 result.Add(new StoreGameListItem(p.Id, p.Title, p.Slug));
             }
         }
@@ -92,13 +89,6 @@ public sealed class GogStoreProvider(
             .Where(t => !string.IsNullOrWhiteSpace(t.Name))
             .Select(t => t.Name!).Take(20).ToArray();
 
-        // FIX: GOG details API повертає slug — використовуємо його для побудови
-        //      правильного URL. EnrichSingleAsync запише це значення в ExternalUrl,
-        //      що виправить вже існуючі записи після першого ж запуску збагачення.
-        var storeUrl = NullIfEmpty(dto.Slug) is { } s
-            ? $"https://www.gog.com/game/{s}"
-            : null;
-
         return new StoreGameDetails
         {
             ExternalId     = externalId,
@@ -111,18 +101,15 @@ public sealed class GogStoreProvider(
             RatingCount    = null,
             HeaderImageUrl = NormalizeUrl(dto.Images?.Background),
             IconImageUrl   = NormalizeUrl(dto.Images?.Logo),
+            // GOG повертає опис у вигляді {lead, full, whatsNew}.
+            // Пріоритет: lead (короткий) → full (повний HTML) → null
+            Description    = NullIfEmpty(dto.Description?.Lead)
+                          ?? NullIfEmpty(dto.Description?.Full),
         };
     }
 
-    public async Task<StorePriceInfo?> GetPriceAsync(string externalId, CancellationToken ct)
-    {
-        var dto = await client.GetItemPriceAsync(externalId, ct);
-        if (dto?.Price is null) return null;
-
-        var price    = dto.Price;
-        var discount = dto.Discount;
-        return new StorePriceInfo(price, discount, "USD");
-    }
+    public Task<StorePriceInfo?> GetPriceAsync(string externalId, CancellationToken ct)
+        => client.GetItemPriceAsync(externalId, ct);
 
     public string BuildOfferUrl(string slugOrId)
         => $"https://www.gog.com/game/{slugOrId}";
