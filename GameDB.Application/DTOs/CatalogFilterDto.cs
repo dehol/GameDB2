@@ -102,7 +102,7 @@ public record CatalogSidebarDto(
 );
 
 public record GenreFilterItemDto(int GenreId, string Name, int GameCount);
-public record TagFilterItemDto(int TagId, string Name, int GameCount); // <-- ДОДАНО: Рекорд тегу
+public record TagFilterItemDto(int TagId, string Name, int GameCount);
 public record DeveloperFilterItemDto(int DeveloperId, string Name);
 public record PublisherFilterItemDto(int PublisherId, string Name);
 public record ShopFilterItemDto(int ShopId, string Name);

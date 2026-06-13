@@ -9,8 +9,7 @@ public class CatalogService : ICatalogService
 
     public CatalogService(ICatalogRepository repo) => _repo = repo;
 
-    public async Task<CatalogResultDto> GetCatalogAsync(
-        CatalogFilterDto filter, CancellationToken ct = default)
+    public async Task<CatalogResultDto> GetCatalogAsync(CatalogFilterDto filter, CancellationToken ct = default)
     {
         // 1. Отримуємо тільки елементи поточної сторінки
         var items = await _repo.GetPagedAsync(filter, ct);

@@ -9,7 +9,6 @@ public record UserGameListItemDto(
     string?  BestCurrency,
     int      BestDiscount,
     DateTime AddedAt,
-    /// <summary>ExternalId з магазину Steam (рядок, напр. "730"). Null якщо гра не має Steam-запису.</summary>
     string?  SteamExternalId
 );
 
@@ -24,7 +23,6 @@ public record UserLibraryItemDto(
     DateTime AddedAt,
     int      ShopId,
     string   ShopName,
-    /// <summary>ExternalId з магазину Steam (рядок, напр. "730"). Null якщо гра не має Steam-запису.</summary>
     string?  SteamExternalId
 );
 

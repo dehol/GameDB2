@@ -32,17 +32,17 @@ public sealed partial class GameRepository(AppDbContext db) : IGameRepository
             .Take(take)
             .ToListAsync(ct);
 
-    public Task<List<Game>> GetGamesByExternalIdsBatchAsync(
-        int shopId,
-        IReadOnlyCollection<string> externalIds,
-        CancellationToken ct = default)
+    public Task<List<Game>> GetGamesByExternalIdsBatchAsync(int shopId, IReadOnlyCollection<string> externalIds, CancellationToken ct = default)
     {
         if (externalIds.Count == 0)
             return Task.FromResult(new List<Game>());
 
         return db.Games
             .Include(g => g.GameExternalIds)
-            .Where(g => g.GameExternalIds.Any(e => e.ShopId == shopId && externalIds.Contains(e.ExternalId)))
+            .Include(g => g.Genres)
+            .Include(g => g.Tags)
+            .Where(g => g.GameExternalIds
+                .Any(e => e.ShopId == shopId && externalIds.Contains(e.ExternalId)))
             .ToListAsync(ct);
     }
 

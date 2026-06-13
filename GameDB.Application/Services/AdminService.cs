@@ -38,9 +38,7 @@ public sealed class AdminService : IAdminService
             ImportJobStatusDto.FromState(_priceSyncState,  "Синхронізація цін"));
     }
 
-    public Task<AdminGameListDto> GetGamesAsync(
-        AdminGameCoverageFilter filter, int page, int pageSize,
-        string? search = null, CancellationToken ct = default)
+    public Task<AdminGameListDto> GetGamesAsync(AdminGameCoverageFilter filter, int page, int pageSize,string? search = null, CancellationToken ct = default)
         => _adminRepo.GetGamesAsync(filter, page, pageSize, search, ct);
 
     public Task<int> ImportBasicGamesAsync(string? providerSlug = null, CancellationToken ct = default)

@@ -28,7 +28,6 @@ public sealed class CatalogRepository(AppDbContext db) : ICatalogRepository
                 g.Rating,
                 g.RatingCount,
                 g.Genres.OrderBy(gr => gr.Name).Select(gr => gr.Name).ToList(),
-                // Читаємо готові кешовані значення з таблиці Game за O(1)
                 g.CachedBestPrice,
                 g.CachedBestDiscount,
                 g.IsFree
@@ -53,7 +52,6 @@ public sealed class CatalogRepository(AppDbContext db) : ICatalogRepository
             (CatalogSortBy.Popularity, true) => q.OrderByDescending(g => (g.Rating ?? 0d) * (g.RatingCount ?? 0)).ThenByDescending(g => g.GameId),
             (CatalogSortBy.Popularity, false) => q.OrderBy(g => (g.Rating ?? 0d) * (g.RatingCount ?? 0)).ThenBy(g => g.GameId),
 
-            // Більше ніяких Correlated Subquery! Працює через готовий індекс
             (CatalogSortBy.Price, true) => q.OrderByDescending(g => g.CachedBestPrice ?? 999_999m).ThenByDescending(g => g.GameId),
             (CatalogSortBy.Price, false) => q.OrderBy(g => g.CachedBestPrice ?? 999_999m).ThenBy(g => g.GameId),
 
@@ -103,6 +101,7 @@ public sealed class CatalogRepository(AppDbContext db) : ICatalogRepository
 
         return query;
     }
+    
     public async Task<CatalogSidebarDto> GetSidebarDataAsync(CancellationToken ct = default)
     {
         // Sidebar рідко змінюється — розгляньте IMemoryCache з expiry ~1h
