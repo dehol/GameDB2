@@ -13,7 +13,6 @@ public sealed class AdminService : IAdminService
     private readonly EnrichmentOperationState _enrichmentState;
     private readonly PriceSyncOperationState  _priceSyncState;
 
-    // Slug'и повинні збігатися з IStoreProvider.Slug у кожному провайдері
     private static readonly string[] PriceSyncProviders  = ["steam", "gog", "epic"];
     private static readonly string[] EnrichmentProviders = ["steam", "gog", "epic"];
 
@@ -24,11 +23,11 @@ public sealed class AdminService : IAdminService
         EnrichmentOperationState enrichmentState,
         PriceSyncOperationState  priceSyncState)
     {
-        _adminRepo       = adminRepo;
-        _jobClient       = jobClient;
+        _adminRepo        = adminRepo;
+        _jobClient        = jobClient;
         _basicImportState = basicImportState;
-        _enrichmentState = enrichmentState;
-        _priceSyncState  = priceSyncState;
+        _enrichmentState  = enrichmentState;
+        _priceSyncState   = priceSyncState;
     }
 
     public async Task<AdminDashboardDto> GetDashboardAsync(CancellationToken ct = default)
@@ -36,12 +35,14 @@ public sealed class AdminService : IAdminService
         var stats = await _adminRepo.GetStatsAsync(ct);
         return new AdminDashboardDto(
             stats,
-            ImportJobStatusDto.FromState(_enrichmentState, "Збагачення деталей"),
-            ImportJobStatusDto.FromState(_priceSyncState,  "Синхронізація цін"),
-            ImportJobStatusDto.FromState(_basicImportState, "Базовий імпорт"));
+            ImportJobStatusDto.FromState(_basicImportState, "Базовий імпорт"),
+            ImportJobStatusDto.FromState(_enrichmentState,  "Збагачення деталей"),
+            ImportJobStatusDto.FromState(_priceSyncState,   "Синхронізація цін"));
     }
 
-    public Task<AdminGameListDto> GetGamesAsync(AdminGameCoverageFilter filter, int page, int pageSize,string? search = null, CancellationToken ct = default)
+    public Task<AdminGameListDto> GetGamesAsync(
+        AdminGameCoverageFilter filter, int page, int pageSize,
+        string? search = null, CancellationToken ct = default)
         => _adminRepo.GetGamesAsync(filter, page, pageSize, search, ct);
 
     public Task<int> ImportBasicGamesAsync(string? providerSlug = null, CancellationToken ct = default)
@@ -52,33 +53,37 @@ public sealed class AdminService : IAdminService
         return Task.FromResult(1);
     }
 
-    public void StartEnrichmentImport(bool overwriteExisting = false)
-    {
-        _enrichmentState.ResetStop();
-        _enrichmentState.PrepareParallelSync("Збагачення деталей", EnrichmentProviders.Length);
+    public void StopBasicImport() => _basicImportState.RequestStop();
 
-        foreach (var slug in EnrichmentProviders)
+    public void StartEnrichmentImport(string? providerSlug = null, bool overwriteExisting = false)
+    {
+        var providers = providerSlug != null
+            ? [providerSlug]
+            : EnrichmentProviders;
+
+        _enrichmentState.ResetStop();
+        _enrichmentState.PrepareParallelSync("Збагачення деталей", providers.Length);
+
+        foreach (var slug in providers)
         {
             _jobClient.Enqueue<IGameEnrichmentService>(s =>
                 s.EnrichProviderAsync(slug, overwriteExisting, CancellationToken.None));
         }
     }
 
-    /// <summary>
-    /// Запускає по одному Hangfire-job на кожен провайдер — паралельно.
-    /// IsRunning = true виставляється одразу → UI показує прогрес без затримки.
-    /// StopToken лінкується в SyncProviderAsync → Stop перериває HTTP-запити.
-    /// </summary>
-    /// <param name="batchSize">Зарезервовано. Наразі batch size фіксований у PriceSyncService.</param>
-    /// <param name="notSyncedSince">Зарезервовано. Фільтрація ще не підключена до sync-пайплайну.</param>
-    public bool StartPriceSync(int batchSize, DateTime? notSyncedSince = null)
-    {
-        _priceSyncState.ResetStop();
-        _priceSyncState.PrepareParallelSync("Синхронізація цін", PriceSyncProviders.Length);
+    public void StopEnrichmentImport() => _enrichmentState.RequestStop();
 
-        foreach (var slug in PriceSyncProviders)
+    public bool StartPriceSync(int batchSize, string? providerSlug = null, DateTime? notSyncedSince = null)
+    {
+        var providers = providerSlug != null
+            ? [providerSlug]
+            : PriceSyncProviders;
+
+        _priceSyncState.ResetStop();
+        _priceSyncState.PrepareParallelSync("Синхронізація цін", providers.Length);
+
+        foreach (var slug in providers)
         {
-            // CancellationToken.None — Hangfire замінює на ShutdownToken при виконанні
             _jobClient.Enqueue<IPriceSyncService>(s =>
                 s.SyncProviderAsync(slug, CancellationToken.None));
         }
@@ -86,8 +91,5 @@ public sealed class AdminService : IAdminService
         return true;
     }
 
-    public void StopEnrichmentImport() => _enrichmentState.RequestStop();
-
-    // RequestStop() скасовує StopToken → переривається через LinkedCts у SyncProviderAsync
     public void StopPriceSync() => _priceSyncState.RequestStop();
 }

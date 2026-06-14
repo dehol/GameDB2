@@ -45,9 +45,9 @@ public class AdminController : ControllerBase
 
     [HttpPost("import/enrich/start")]
     [ValidateAntiForgeryToken]
-    public IActionResult StartEnrichment([FromQuery] bool overwrite = false)
+    public IActionResult StartEnrichment([FromQuery] string? provider, [FromQuery] bool overwrite = false)
     {
-        _admin.StartEnrichmentImport(overwrite);
+        _admin.StartEnrichmentImport(provider, overwrite);
         return Accepted(new { message = "Збагачення запущено." });
     }
 
@@ -61,11 +61,9 @@ public class AdminController : ControllerBase
 
     [HttpPost("import/prices/start")]
     [ValidateAntiForgeryToken]
-    public IActionResult StartPrices(
-        [FromQuery] int batchSize = 100,
-        [FromQuery] DateTime? notSyncedSince = null)
+    public IActionResult StartPrices([FromQuery] string? provider, [FromQuery] int batchSize = 100, [FromQuery] DateTime? notSyncedSince = null)
     {
-        if (!_admin.StartPriceSync(batchSize, notSyncedSince))
+        if (!_admin.StartPriceSync(batchSize, provider, notSyncedSince))
             return Conflict(new { message = "Синхронізація цін уже виконується." });
 
         var msg = notSyncedSince.HasValue

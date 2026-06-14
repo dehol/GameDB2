@@ -66,8 +66,7 @@
     @* ── Operation panels ───────────────────────────────────────────────  *@
     <div class="row g-3 mb-4">
 
-        
-    @* Catalog import — fire-and-forget, per-store or all  *@
+        @* Catalog import — per-store or all, з прогресом і зупинкою *@
         <div class="col-lg-4">
             <div class="admin-panel">
                 <h2 class="h6 admin-panel-title">Каталоги магазинів</h2>
@@ -86,9 +85,13 @@
                         🚀 Усі (паралельно)
                     </button>
                 </div>
+                <button type="button" class="btn btn-outline-danger btn-sm w-100 mt-1" id="btnBasicStop">
+                    ■ Зупинити
+                </button>
                 <div class="admin-progress d-none mt-2" id="basicImportProgressWrap">
                     <div class="progress">
-                        <div class="progress-bar" id="basicImportProgressBar" style="width: 0%"></div>
+                        <div class="progress-bar progress-bar-striped progress-bar-animated"
+                             id="basicImportProgressBar" style="width: 100%"></div>
                     </div>
                     <div class="small text-muted mt-1" id="basicImportProgressText"></div>
                 </div>
@@ -96,8 +99,7 @@
             </div>
         </div>
 
-        
-    @* Enrichment — background job, indeterminate progress  *@
+        @* Enrichment — per-store or all, з прогресом і зупинкою *@
         <div class="col-lg-4">
             <div class="admin-panel">
                 <h2 class="h6 admin-panel-title">Збагачення ігор</h2>
@@ -108,14 +110,23 @@
                     <input class="form-check-input" type="checkbox" id="enrichOverwrite" />
                     <label class="form-check-label" for="enrichOverwrite">Перезаписувати існуючі дані</label>
                 </div>
-                <div class="d-flex gap-2">
-                    <button type="button" class="btn btn-primary btn-sm flex-grow-1" id="btnEnrichStart">
-                        ▶ Запустити
+                <div class="d-grid gap-2 mb-2" id="enrichImportBtns">
+                    <button type="button" class="btn btn-outline-secondary btn-sm" data-enrich-provider="steam">
+                        🎮 Steam
                     </button>
-                    <button type="button" class="btn btn-outline-danger btn-sm" id="btnEnrichStop" title="Зупинити">
-                        ■
+                    <button type="button" class="btn btn-outline-secondary btn-sm" data-enrich-provider="gog">
+                        🌌 GOG
+                    </button>
+                    <button type="button" class="btn btn-outline-secondary btn-sm" data-enrich-provider="epic">
+                        ⚡ Epic Games
+                    </button>
+                    <button type="button" class="btn btn-primary btn-sm" data-enrich-provider="">
+                        🚀 Усі (паралельно)
                     </button>
                 </div>
+                <button type="button" class="btn btn-outline-danger btn-sm w-100 mt-1" id="btnEnrichStop">
+                    ■ Зупинити
+                </button>
                 <div class="admin-progress d-none mt-2" id="enrichProgressWrap">
                     <div class="progress">
                         <div class="progress-bar progress-bar-striped progress-bar-animated"
@@ -127,8 +138,7 @@
             </div>
         </div>
 
-        
-    @* Price sync — background job, determinate progress  *@
+        @* Price sync — per-store or all, з прогресом і зупинкою *@
         <div class="col-lg-4">
             <div class="admin-panel">
                 <h2 class="h6 admin-panel-title">Синхронізація цін</h2>
@@ -139,21 +149,30 @@
                     <span class="input-group-text">Батч</span>
                     <input type="number" class="form-control" id="priceBatchSize" value="100" min="1" max="200" />
                 </div>
-                <div class="d-flex gap-2 mb-3">
-                    <button type="button" class="btn btn-primary btn-sm flex-grow-1" id="btnPriceStart">
-                        ▶ Усі ціни
+                <div class="d-grid gap-2 mb-2" id="priceImportBtns">
+                    <button type="button" class="btn btn-outline-secondary btn-sm" data-price-provider="steam">
+                        🎮 Steam
                     </button>
-                    <button type="button" class="btn btn-outline-danger btn-sm" id="btnPriceStop" title="Зупинити">
-                        ■
+                    <button type="button" class="btn btn-outline-secondary btn-sm" data-price-provider="gog">
+                        🌌 GOG
+                    </button>
+                    <button type="button" class="btn btn-outline-secondary btn-sm" data-price-provider="epic">
+                        ⚡ Epic Games
+                    </button>
+                    <button type="button" class="btn btn-primary btn-sm" data-price-provider="">
+                        🚀 Усі (паралельно)
                     </button>
                 </div>
-                <hr class="my-0 mb-3" />
+                <button type="button" class="btn btn-outline-danger btn-sm w-100 mt-1" id="btnPriceStop">
+                    ■ Зупинити
+                </button>
+                <hr class="my-2" />
                 <p class="small text-muted mb-1">Тільки не синхронізовані після:</p>
                 <div class="input-group input-group-sm mb-2">
                     <span class="input-group-text">Дата</span>
                     <input type="date" class="form-control" id="priceSinceDate" />
                     <button type="button" class="btn btn-outline-primary btn-sm" id="btnPriceSinceStart"
-                            title="Синхронізувати з цієї дати">▶</button>
+                            title="Синхронізувати (всі) з цієї дати">▶</button>
                 </div>
                 <div class="admin-progress d-none mt-2" id="priceProgressWrap">
                     <div class="progress">

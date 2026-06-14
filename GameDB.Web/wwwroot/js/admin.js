@@ -53,11 +53,6 @@
     }
 
     // ── Unified job rendering ─────────────────────────────────────────────────
-    //
-    //  renderJobStatus  — оновлює текстовий статус під кнопками
-    //  renderProgress   — показує/ховає progress bar; для enrichment (без processed)
-    //                     показує indeterminate смугу, для prices — determinate
-    //
 
     function renderJobStatus(statusEl, job, label) {
         const isRunning = job.isRunning;
@@ -71,9 +66,10 @@
             : (job.finishedAt ? '■ зупинено' : '○ очікує');
 
         let html = `<strong>${label}</strong>: ${status}`;
+        if (job.source)        html += ` · ${escapeHtml(job.source)}`;
         if (job.lastBatchSize) html += ` · батч ${job.lastBatchSize}`;
-        if (job.lastMessage)   html += `<br>${job.lastMessage}`;
-        if (job.lastError)     html += `<br><span class="text-danger">${job.lastError}</span>`;
+        if (job.lastMessage)   html += `<br>${escapeHtml(job.lastMessage)}`;
+        if (job.lastError)     html += `<br><span class="text-danger">${escapeHtml(job.lastError)}</span>`;
         if (job.startedAt)     html += `<br><span class="text-muted">з ${fmtDate(job.startedAt)}</span>`;
 
         statusEl.innerHTML = html;
@@ -86,16 +82,15 @@
         }
         wrapEl.classList.remove('d-none');
 
-        if (job.processed != null) {
-            // determinate (наприклад, priceSync)
-            const total = job.total || 1;
-            const pct   = Math.min(100, Math.round((job.processed / total) * 100));
+        if (job.processed != null && job.total > 0) {
+            // determinate
+            const pct = Math.min(100, Math.round((job.processed / job.total) * 100));
             barEl.style.width = `${pct}%`;
             barEl.classList.remove('progress-bar-striped', 'progress-bar-animated');
             textEl.textContent =
-                `${job.processed} / ${total} (${pct}%)${job.lastMessage ? ' · ' + job.lastMessage : ''}`;
+                `${job.processed} / ${job.total} (${pct}%)${job.lastMessage ? ' · ' + job.lastMessage : ''}`;
         } else {
-            // indeterminate (наприклад, enrichment)
+            // indeterminate
             barEl.style.width = '100%';
             barEl.classList.add('progress-bar-striped', 'progress-bar-animated');
             textEl.textContent = job.lastMessage || '';
@@ -116,12 +111,21 @@
         el('pendingDetails').textContent = s.statusBasic;
         el('lastPriceSync').textContent  = fmtDate(s.lastPriceSyncAt);
 
+        // Basic import
+        renderJobStatus(el('basicImportJobStatus'), d.basicImport, 'Каталог');
+        renderProgress(
+            el('basicImportProgressWrap'), el('basicImportProgressBar'), el('basicImportProgressText'),
+            d.basicImport
+        );
+
+        // Enrichment
         renderJobStatus(el('enrichmentJobStatus'), d.gameEnrichment, 'Збагачення');
         renderProgress(
             el('enrichProgressWrap'), el('enrichProgressBar'), el('enrichProgressText'),
             d.gameEnrichment
         );
 
+        // Price sync
         renderJobStatus(el('priceJobStatus'), d.priceSync, 'Ціни');
         renderProgress(
             el('priceProgressWrap'), el('priceProgressBar'), el('priceProgressText'),
@@ -183,57 +187,56 @@
         pollTimer = setInterval(refreshDashboard, 5000);
     }
 
-    // ── Catalog import (fire-and-forget, per-store) ───────────────────────────
-
-    function setPanelBusy(containerId, busy) {
-        document.querySelectorAll(`#${containerId} button`).forEach(b => b.disabled = busy);
-    }
-
-    function setImportStatus(msg, state = '') {
-        const s = el('basicImportStatus');
-        s.classList.remove('d-none', 'running', 'error');
-        if (msg) {
-            s.textContent = msg;
-            if (state) s.classList.add(state);
-        } else {
-            s.classList.add('d-none');
-        }
-    }
+    // ── Catalog import ────────────────────────────────────────────────────────
 
     async function runBasicImport(provider, label) {
-        setPanelBusy('catalogImportBtns', true);
-        setImportStatus(`▶ Імпорт ${label}…`, 'running');
+        document.querySelectorAll('#catalogImportBtns button').forEach(b => b.disabled = true);
         try {
             const query = provider ? `provider=${encodeURIComponent(provider)}` : '';
-            const data  = await post('/import/basic', query);
-            setImportStatus(`✔ ${label}: додано ${data.imported} ігор`);
-            toast(`Basic import (${label}): +${data.imported}`);
+            await post('/import/basic', query);
+            toast(`Каталог ${label}: запущено`);
             refreshDashboard();
-            loadGames();
+            startPolling();
         } catch (e) {
-            setImportStatus(`✘ ${e.message}`, 'error');
             toast(e.message, true);
         } finally {
-            setPanelBusy('catalogImportBtns', false);
+            document.querySelectorAll('#catalogImportBtns button').forEach(b => b.disabled = false);
         }
     }
 
-    // Event delegation для кнопок каталогу
     document.querySelectorAll('[data-import-provider]').forEach(btn =>
         btn.addEventListener('click', () =>
             runBasicImport(btn.dataset.importProvider, btn.textContent.trim())));
 
-    // ── Enrichment ────────────────────────────────────────────────────────────
-
-    el('btnEnrichStart').addEventListener('click', async () => {
+    el('btnBasicStop').addEventListener('click', async () => {
         try {
-            const overwrite = el('enrichOverwrite').checked;
-            await post('/import/enrich/start', overwrite ? 'overwrite=true' : '');
-            toast('Збагачення запущено');
+            await post('/import/basic/stop');
+            toast('Імпорт каталогу зупинено');
             refreshDashboard();
-            startPolling();
         } catch (e) { toast(e.message, true); }
     });
+
+    // ── Enrichment ────────────────────────────────────────────────────────────
+
+    async function runEnrichment(provider, label) {
+        document.querySelectorAll('#enrichImportBtns button').forEach(b => b.disabled = true);
+        try {
+            const overwrite = el('enrichOverwrite').checked;
+            const query = `overwrite=${overwrite}${provider ? `&provider=${encodeURIComponent(provider)}` : ''}`;
+            await post('/import/enrich/start', query);
+            toast(`Збагачення ${label} запущено`);
+            refreshDashboard();
+            startPolling();
+        } catch (e) {
+            toast(e.message, true);
+        } finally {
+            document.querySelectorAll('#enrichImportBtns button').forEach(b => b.disabled = false);
+        }
+    }
+
+    document.querySelectorAll('[data-enrich-provider]').forEach(btn =>
+        btn.addEventListener('click', () =>
+            runEnrichment(btn.dataset.enrichProvider, btn.textContent.trim())));
 
     el('btnEnrichStop').addEventListener('click', async () => {
         try {
@@ -249,31 +252,35 @@
         return `batchSize=${el('priceBatchSize').value || 100}`;
     }
 
-    el('btnPriceStart').addEventListener('click', async () => {
+    async function runPriceSync(provider, label, extra = '') {
+        document.querySelectorAll('#priceImportBtns button').forEach(b => b.disabled = true);
         try {
-            await post('/import/prices/start', batchParam());
-            toast('Синхронізація цін запущена');
+            const query = `${batchParam()}${provider ? `&provider=${encodeURIComponent(provider)}` : ''}${extra}`;
+            await post('/import/prices/start', query);
+            toast(`Синхронізація цін ${label} запущена`);
             refreshDashboard();
             startPolling();
-        } catch (e) { toast(e.message, true); }
-    });
+        } catch (e) {
+            toast(e.message, true);
+        } finally {
+            document.querySelectorAll('#priceImportBtns button').forEach(b => b.disabled = false);
+        }
+    }
 
-    el('btnPriceSinceStart').addEventListener('click', async () => {
+    document.querySelectorAll('[data-price-provider]').forEach(btn =>
+        btn.addEventListener('click', () =>
+            runPriceSync(btn.dataset.priceProvider, btn.textContent.trim())));
+
+    el('btnPriceSinceStart').addEventListener('click', () => {
         const since = el('priceSinceDate').value;
         if (!since) { toast('Оберіть дату', true); return; }
-        try {
-            await post('/import/prices/start',
-                `${batchParam()}&notSyncedSince=${encodeURIComponent(since)}`);
-            toast(`Синхронізація цін (після ${since}) запущена`);
-            refreshDashboard();
-            startPolling();
-        } catch (e) { toast(e.message, true); }
+        runPriceSync('', `(після ${since})`, `&notSyncedSince=${encodeURIComponent(since)}`);
     });
 
     el('btnPriceStop').addEventListener('click', async () => {
         try {
             await post('/import/prices/stop');
-            toast('Зупинка цін…');
+            toast('Зупинка синхронізації цін…');
             refreshDashboard();
         } catch (e) { toast(e.message, true); }
     });

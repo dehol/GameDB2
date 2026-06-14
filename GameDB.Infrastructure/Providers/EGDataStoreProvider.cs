@@ -92,14 +92,20 @@ public sealed class EGDataStoreProvider(
 
     private static string? FindImage(EGDataItemDto dto, params string[] preferredTypes)
     {
+        var images = dto.KeyImages;
+        if (images == null || images.Count == 0)
+            return null;
+
         foreach (var type in preferredTypes)
-        {   
-            if(dto.KeyImages == null) break;
-            var img = dto.KeyImages.FirstOrDefault(
-                i => i.Type?.Equals(type, StringComparison.OrdinalIgnoreCase) == true);
-            if (img?.Url is not null) return img.Url;
+        {
+            var img = images.FirstOrDefault(i =>
+                string.Equals(i.Type, type, StringComparison.OrdinalIgnoreCase));
+
+            if (img?.Url != null)
+                return img.Url;
         }
-        return dto.KeyImages.FirstOrDefault().Url;
+
+        return images.FirstOrDefault()?.Url;
     }
 
     private static string? NullIfEmpty(string? s) => string.IsNullOrWhiteSpace(s) ? null : s;

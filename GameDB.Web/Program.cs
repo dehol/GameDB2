@@ -90,7 +90,7 @@ try
  
     builder.Services.AddHangfireServer(options =>
     {
-        options.WorkerCount = 5;
+        options.WorkerCount = 9;
  
         options.ShutdownTimeout = TimeSpan.FromMinutes(5);
     });
