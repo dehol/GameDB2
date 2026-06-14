@@ -3,12 +3,14 @@
 
     const api = '/api/admin';
     let currentPage = 1;
-    const pageSize = 50;
-    let pollTimer = null;
+    const pageSize  = 50;
+    let pollTimer   = null;
 
-    const el = (id) => document.getElementById(id);
+    const el = id => document.getElementById(id);
 
-    function toast(msg, isError) {
+    // ── Toast ─────────────────────────────────────────────────────────────────
+
+    function toast(msg, isError = false) {
         const t = el('adminToast');
         t.textContent = msg;
         t.classList.remove('d-none', 'error');
@@ -17,15 +19,17 @@
         t._hide = setTimeout(() => t.classList.add('d-none'), 4000);
     }
 
+    // ── Fetch helpers ─────────────────────────────────────────────────────────
+
     const csrfToken = () =>
         document.querySelector('#antiForgeryForm input[name="__RequestVerificationToken"]')?.value;
 
-    async function post(path, query) {
-        const url = query ? `${api}${path}?${query}` : `${api}${path}`;
-        const token = csrfToken();
+    async function post(path, query = '') {
+        const url     = query ? `${api}${path}?${query}` : `${api}${path}`;
+        const token   = csrfToken();
         const headers = token ? { RequestVerificationToken: token } : {};
-        const res = await fetch(url, { method: 'POST', credentials: 'same-origin', headers });
-        const data = await res.json().catch(() => ({}));
+        const res     = await fetch(url, { method: 'POST', credentials: 'same-origin', headers });
+        const data    = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data.message || res.statusText);
         return data;
     }
@@ -36,20 +40,10 @@
         return res.json();
     }
 
-    function fmtDate(iso) {
-        if (!iso) return '—';
-        return new Date(iso).toLocaleString('uk-UA');
-    }
+    // ── Utilities ─────────────────────────────────────────────────────────────
 
-    function jobHtml(job, label) {
-        const cls    = job.isRunning ? 'running' : (job.lastError ? 'error' : '');
-        const status = job.isRunning ? '▶ працює' : (job.finishedAt ? '■ зупинено' : '○ очікує');
-        let text = `<strong>${label}</strong>: ${status}`;
-        if (job.lastBatchSize) text += ` · батч ${job.lastBatchSize}`;
-        if (job.lastMessage)   text += `<br>${job.lastMessage}`;
-        if (job.lastError)     text += `<br><span class="text-danger">${job.lastError}</span>`;
-        if (job.startedAt)     text += `<br><span class="text-muted">з ${fmtDate(job.startedAt)}</span>`;
-        return `<div class="admin-job-status ${cls}">${text}</div>`;
+    function fmtDate(iso) {
+        return iso ? new Date(iso).toLocaleString('uk-UA') : '—';
     }
 
     function escapeHtml(s) {
@@ -57,6 +51,58 @@
         d.textContent = s;
         return d.innerHTML;
     }
+
+    // ── Unified job rendering ─────────────────────────────────────────────────
+    //
+    //  renderJobStatus  — оновлює текстовий статус під кнопками
+    //  renderProgress   — показує/ховає progress bar; для enrichment (без processed)
+    //                     показує indeterminate смугу, для prices — determinate
+    //
+
+    function renderJobStatus(statusEl, job, label) {
+        const isRunning = job.isRunning;
+        const hasError  = !!job.lastError;
+
+        statusEl.classList.toggle('running', isRunning);
+        statusEl.classList.toggle('error', !isRunning && hasError);
+
+        const status = isRunning
+            ? '▶ працює'
+            : (job.finishedAt ? '■ зупинено' : '○ очікує');
+
+        let html = `<strong>${label}</strong>: ${status}`;
+        if (job.lastBatchSize) html += ` · батч ${job.lastBatchSize}`;
+        if (job.lastMessage)   html += `<br>${job.lastMessage}`;
+        if (job.lastError)     html += `<br><span class="text-danger">${job.lastError}</span>`;
+        if (job.startedAt)     html += `<br><span class="text-muted">з ${fmtDate(job.startedAt)}</span>`;
+
+        statusEl.innerHTML = html;
+    }
+
+    function renderProgress(wrapEl, barEl, textEl, job) {
+        if (!job.isRunning) {
+            wrapEl.classList.add('d-none');
+            return;
+        }
+        wrapEl.classList.remove('d-none');
+
+        if (job.processed != null) {
+            // determinate (наприклад, priceSync)
+            const total = job.total || 1;
+            const pct   = Math.min(100, Math.round((job.processed / total) * 100));
+            barEl.style.width = `${pct}%`;
+            barEl.classList.remove('progress-bar-striped', 'progress-bar-animated');
+            textEl.textContent =
+                `${job.processed} / ${total} (${pct}%)${job.lastMessage ? ' · ' + job.lastMessage : ''}`;
+        } else {
+            // indeterminate (наприклад, enrichment)
+            barEl.style.width = '100%';
+            barEl.classList.add('progress-bar-striped', 'progress-bar-animated');
+            textEl.textContent = job.lastMessage || '';
+        }
+    }
+
+    // ── Dashboard ─────────────────────────────────────────────────────────────
 
     function applyDashboard(d) {
         const s = d.stats;
@@ -69,28 +115,26 @@
 
         el('pendingDetails').textContent = s.statusBasic;
         el('lastPriceSync').textContent  = fmtDate(s.lastPriceSyncAt);
-        el('enrichmentJobStatus').innerHTML = jobHtml(d.gameEnrichment, 'Збагачення');
 
-        const price = d.priceSync;
-        el('priceJobStatus').innerHTML = jobHtml(price, 'Ціни');
+        renderJobStatus(el('enrichmentJobStatus'), d.gameEnrichment, 'Збагачення');
+        renderProgress(
+            el('enrichProgressWrap'), el('enrichProgressBar'), el('enrichProgressText'),
+            d.gameEnrichment
+        );
 
-        const wrap = el('priceProgressWrap');
-        if (price.isRunning && price.processed != null) {
-            wrap.classList.remove('d-none');
-            const total = price.total || 1;
-            const pct   = Math.min(100, Math.round((price.processed / total) * 100));
-            el('priceProgressBar').style.width = pct + '%';
-            el('priceProgressText').textContent =
-                `${price.processed} / ${total} (${pct}%) · ${price.lastMessage || ''}`;
-        } else if (!price.isRunning) {
-            wrap.classList.add('d-none');
-        }
+        renderJobStatus(el('priceJobStatus'), d.priceSync, 'Ціни');
+        renderProgress(
+            el('priceProgressWrap'), el('priceProgressBar'), el('priceProgressText'),
+            d.priceSync
+        );
     }
 
     async function refreshDashboard() {
         try { applyDashboard(await getDashboard()); }
         catch (e) { toast(e.message, true); }
     }
+
+    // ── Games table ───────────────────────────────────────────────────────────
 
     async function loadGames() {
         const params = new URLSearchParams({
@@ -108,35 +152,30 @@
             return;
         }
 
-        const data  = await res.json();
-        const tbody = el('gamesTableBody');
+        const { items, page, pageSize: ps, totalCount } = await res.json();
 
-        tbody.innerHTML = !data.items.length
+        el('gamesTableBody').innerHTML = !items.length
             ? '<tr><td colspan="7" class="text-muted text-center py-3">Немає записів</td></tr>'
-            : data.items.map(g => {
-                const statusBadge = g.importStatus === 'Full'
+            : items.map(g => `<tr>
+                <td>${g.gameId}</td>
+                <td>${escapeHtml(g.name)}</td>
+                <td>${g.steamExternalId ?? '—'}</td>
+                <td>${g.importStatus === 'Full'
                     ? '<span class="admin-badge admin-badge-yes">Full</span>'
-                    : '<span class="admin-badge admin-badge-no">Basic</span>';
-                const price = g.hasPrice
+                    : '<span class="admin-badge admin-badge-no">Basic</span>'}</td>
+                <td>${g.hasPrice
                     ? '<span class="admin-badge admin-badge-yes">так</span>'
-                    : '<span class="admin-badge admin-badge-no">ні</span>';
-                return `<tr>
-                    <td>${g.gameId}</td>
-                    <td>${escapeHtml(g.name)}</td>
-                    <td>${g.steamExternalId ?? '—'}</td>
-                    <td>${statusBadge}</td>
-                    <td>${price}</td>
-                    <td class="small text-muted">${fmtDate(g.lastSyncedAt)}</td>
-                    <td><a href="/Catalog/Details/${g.gameId}" class="btn btn-link btn-sm p-0">→</a></td>
-                </tr>`;
-            }).join('');
+                    : '<span class="admin-badge admin-badge-no">ні</span>'}</td>
+                <td class="small text-muted">${fmtDate(g.lastSyncedAt)}</td>
+                <td><a href="/Catalog/Details/${g.gameId}" class="btn btn-link btn-sm p-0">→</a></td>
+            </tr>`).join('');
 
-        const from = (data.page - 1) * data.pageSize + 1;
-        const to   = Math.min(data.page * data.pageSize, data.totalCount);
+        const from = (page - 1) * ps + 1;
+        const to   = Math.min(page * ps, totalCount);
         el('gamesPagerInfo').textContent =
-            data.totalCount ? `Показано ${from}–${to} з ${data.totalCount}` : '0 записів';
-        el('btnPrevPage').disabled = data.page <= 1;
-        el('btnNextPage').disabled = data.page * data.pageSize >= data.totalCount;
+            totalCount ? `Показано ${from}–${to} з ${totalCount}` : '0 записів';
+        el('btnPrevPage').disabled = page <= 1;
+        el('btnNextPage').disabled = page * ps >= totalCount;
     }
 
     function startPolling() {
@@ -144,41 +183,51 @@
         pollTimer = setInterval(refreshDashboard, 5000);
     }
 
-    // ── Basic import: 4 окремі кнопки ─────────────────────────────────────────
+    // ── Catalog import (fire-and-forget, per-store) ───────────────────────────
 
-    function setImportButtonsDisabled(disabled) {
-        ['btnImportSteam', 'btnImportGog', 'btnImportEgs', 'btnImportAll']
-            .forEach(id => { const b = el(id); if (b) b.disabled = disabled; });
+    function setPanelBusy(containerId, busy) {
+        document.querySelectorAll(`#${containerId} button`).forEach(b => b.disabled = busy);
+    }
+
+    function setImportStatus(msg, state = '') {
+        const s = el('basicImportStatus');
+        s.classList.remove('d-none', 'running', 'error');
+        if (msg) {
+            s.textContent = msg;
+            if (state) s.classList.add(state);
+        } else {
+            s.classList.add('d-none');
+        }
     }
 
     async function runBasicImport(provider, label) {
-        setImportButtonsDisabled(true);
-        el('basicImportResult').textContent = `Імпорт ${label}…`;
+        setPanelBusy('catalogImportBtns', true);
+        setImportStatus(`▶ Імпорт ${label}…`, 'running');
         try {
             const query = provider ? `provider=${encodeURIComponent(provider)}` : '';
             const data  = await post('/import/basic', query);
-            el('basicImportResult').textContent = `✔ ${label}: додано ${data.imported} ігор`;
+            setImportStatus(`✔ ${label}: додано ${data.imported} ігор`);
             toast(`Basic import (${label}): +${data.imported}`);
             refreshDashboard();
             loadGames();
         } catch (e) {
-            el('basicImportResult').textContent = `✘ ${label}: ${e.message}`;
+            setImportStatus(`✘ ${e.message}`, 'error');
             toast(e.message, true);
         } finally {
-            setImportButtonsDisabled(false);
+            setPanelBusy('catalogImportBtns', false);
         }
     }
 
-    document.querySelectorAll('[data-import-provider]').forEach(btn => {
+    // Event delegation для кнопок каталогу
+    document.querySelectorAll('[data-import-provider]').forEach(btn =>
         btn.addEventListener('click', () =>
-            runBasicImport(btn.dataset.importProvider, btn.textContent.trim()));
-    });
+            runBasicImport(btn.dataset.importProvider, btn.textContent.trim())));
 
     // ── Enrichment ────────────────────────────────────────────────────────────
 
     el('btnEnrichStart').addEventListener('click', async () => {
         try {
-            const overwrite = el('enrichOverwrite')?.checked;
+            const overwrite = el('enrichOverwrite').checked;
             await post('/import/enrich/start', overwrite ? 'overwrite=true' : '');
             toast('Збагачення запущено');
             refreshDashboard();
@@ -187,49 +236,60 @@
     });
 
     el('btnEnrichStop').addEventListener('click', async () => {
-        try { await post('/import/enrich/stop'); toast('Збагачення зупинено'); refreshDashboard(); }
-        catch (e) { toast(e.message, true); }
+        try {
+            await post('/import/enrich/stop');
+            toast('Збагачення зупинено');
+            refreshDashboard();
+        } catch (e) { toast(e.message, true); }
     });
 
     // ── Price sync ────────────────────────────────────────────────────────────
 
+    function batchParam() {
+        return `batchSize=${el('priceBatchSize').value || 100}`;
+    }
+
     el('btnPriceStart').addEventListener('click', async () => {
-        const batch = el('priceBatchSize').value || '100';
         try {
-            await post('/import/prices/start', `batchSize=${batch}`);
+            await post('/import/prices/start', batchParam());
             toast('Синхронізація цін запущена');
-            refreshDashboard(); startPolling();
+            refreshDashboard();
+            startPolling();
         } catch (e) { toast(e.message, true); }
     });
 
     el('btnPriceSinceStart').addEventListener('click', async () => {
-        const batch = el('priceBatchSize').value || '100';
         const since = el('priceSinceDate').value;
-        if (!since) { toast('Оберіть дату для фільтрації', true); return; }
+        if (!since) { toast('Оберіть дату', true); return; }
         try {
             await post('/import/prices/start',
-                `batchSize=${batch}&notSyncedSince=${encodeURIComponent(since)}`);
+                `${batchParam()}&notSyncedSince=${encodeURIComponent(since)}`);
             toast(`Синхронізація цін (після ${since}) запущена`);
-            refreshDashboard(); startPolling();
+            refreshDashboard();
+            startPolling();
         } catch (e) { toast(e.message, true); }
     });
 
     el('btnPriceStop').addEventListener('click', async () => {
-        try { await post('/import/prices/stop'); toast('Зупинка цін…'); refreshDashboard(); }
-        catch (e) { toast(e.message, true); }
+        try {
+            await post('/import/prices/stop');
+            toast('Зупинка цін…');
+            refreshDashboard();
+        } catch (e) { toast(e.message, true); }
     });
 
-    // ── Controls ──────────────────────────────────────────────────────────────
+    // ── Table controls ────────────────────────────────────────────────────────
 
     el('btnRefreshAll').addEventListener('click', () => { refreshDashboard(); loadGames(); });
-    el('gameFilter').addEventListener('change', () => { currentPage = 1; loadGames(); });
-    el('gameSearch').addEventListener('keydown', e => {
-        if (e.key === 'Enter') { currentPage = 1; loadGames(); }
-    });
-    el('btnPrevPage').addEventListener('click', () => { if (currentPage > 1) { currentPage--; loadGames(); } });
-    el('btnNextPage').addEventListener('click', () => { currentPage++; loadGames(); });
+    el('gameFilter').addEventListener('change',   () => { currentPage = 1; loadGames(); });
+    el('gameSearch').addEventListener('keydown',  e  => { if (e.key === 'Enter') { currentPage = 1; loadGames(); } });
+    el('btnPrevPage').addEventListener('click',   ()  => { if (currentPage > 1) { currentPage--; loadGames(); } });
+    el('btnNextPage').addEventListener('click',   ()  => { currentPage++; loadGames(); });
+
+    // ── Init ──────────────────────────────────────────────────────────────────
 
     refreshDashboard();
     loadGames();
     startPolling();
+
 })();

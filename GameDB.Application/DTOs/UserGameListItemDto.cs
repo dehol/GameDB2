@@ -9,6 +9,7 @@ public record UserGameListItemDto(
     string?  BestCurrency,
     int      BestDiscount,
     DateTime AddedAt,
+    /// <summary>ExternalId з магазину Steam (рядок, напр. "730"). Null якщо гра не має Steam-запису.</summary>
     string?  SteamExternalId
 );
 
@@ -23,34 +24,29 @@ public record UserLibraryItemDto(
     DateTime AddedAt,
     int      ShopId,
     string   ShopName,
+    /// <summary>ExternalId з магазину Steam (рядок, напр. "730"). Null якщо гра не має Steam-запису.</summary>
     string?  SteamExternalId
 );
 
 public record AlertListItemDto(
-    int AlertId,
-    int GameId,
-    string GameName,
-    string? HeaderImage,
+    int      AlertId,
+    int      GameId,
+    string   GameName,
+    string?  HeaderImage,
     decimal? TargetPrice,
     decimal? CurrentBestPrice,
-    string? Currency,
+    string?  Currency,
     DateTime CreatedAt,
     DateTime? TriggeredAt,
-    bool IsActive
+    bool     IsActive
 );
 
-public record CreateAlertDto
-{
-    public int GameId { get; init; }
-    public decimal TargetPrice { get; init; }
-}
-
 public record ImportResultDto(
-    bool Success,
+    bool    Success,
     string? Error,
-    int Added,
-    int SkippedNotInDb,
-    int TotalFromSteam
+    int     Added,
+    int     SkippedNotInDb,
+    int     TotalFromSteam
 )
 {
     public static ImportResultDto Fail(string error) => new(false, error, 0, 0, 0);

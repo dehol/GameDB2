@@ -4,6 +4,7 @@ using GameDB.Application.Services.Import;
 using GameDB.Infrastructure.Catalog;
 using GameDB.Infrastructure.Data;
 using GameDB.Infrastructure.Data.Repositories;
+using GameDB.Infrastructure.BackgroundServices;
 using GameDB.Infrastructure.ExternalProviders;
 using GameDB.Infrastructure.Http;
 using GameDB.Infrastructure.Steam;
@@ -32,6 +33,7 @@ try
 
     // ── Razor Pages + Controllers ────────────────────────────────────────────
     builder.Services.AddRazorPages();
+    builder.Services.AddMemoryCache();
     builder.Services.AddControllers()
         .AddJsonOptions(o =>
             o.JsonSerializerOptions.Converters.Add(
@@ -100,13 +102,13 @@ try
     // ── Репозиторії ──────────────────────────────────────────────────────────
     builder.Services.AddScoped<IGameRepository, GameRepository>();
     builder.Services.AddScoped<IGameOfferRepository, GameOfferRepository>();
-    builder.Services.AddScoped<IAlertRepository, AlertRepository>();
+    
     builder.Services.AddScoped<IGameAlertRepository, GameAlertRepository>();
     builder.Services.AddScoped<IGameAlertService, GameAlertService>();
-    builder.Services.AddScoped<IUserRepository, UserRepository>();
-    builder.Services.AddScoped<ICatalogRepository, CatalogRepository>();
-    builder.Services.AddScoped<IUserCollectionRepository, UserCollectionRepository>();
-    builder.Services.AddScoped<IGameShopRepository, GameShopRepository>();
+    builder.Services.AddScoped<GameDB.Application.Interfaces.IUserRepository, UserRepository>();
+    builder.Services.AddScoped<GameDB.Application.Interfaces.ICatalogRepository, CatalogRepository>();
+    builder.Services.AddScoped<GameDB.Application.Interfaces.IUserCollectionRepository, UserCollectionRepository>();
+    builder.Services.AddScoped<GameDB.Application.Interfaces.IGameShopRepository, GameShopRepository>();
 
     // ── Сервіси Auth ─────────────────────────────────────────────────────────
     builder.Services.AddScoped<AuthService>();
@@ -116,21 +118,22 @@ try
     builder.Services.AddHttpClient<ISteamClient, SteamClient>();
 
     builder.Services
-        .AddHttpClient<ISteamSpyClient, GameDB.Infrastructure.ExternalProviders.SteamSpyClient>()
-        .AddStoreProviderResiliency("steamspy", maxConcurrency: 3); // soft limit ~4 req/s
+        .AddHttpClient<GameDB.Application.Interfaces.ISteamSpyClient, GameDB.Infrastructure.ExternalProviders.SteamSpyClient>()
+        .AddStoreProviderResiliency("steamspy", maxConcurrency: 4); // soft limit ~4 req/s
 
     builder.Services
-        .AddHttpClient<IGogClient, GameDB.Infrastructure.ExternalProviders.GogClient>()
+        .AddHttpClient<GameDB.Application.Interfaces.IGogClient, GameDB.Infrastructure.ExternalProviders.GogClient>()
         .AddStoreProviderResiliency("gog", maxConcurrency: 2);      // офіційний undocumented API
 
     builder.Services
-        .AddHttpClient<IEGDataClient, GameDB.Infrastructure.ExternalProviders.EGDataClient>()
+        .AddHttpClient<GameDB.Application.Interfaces.IEGDataClient, GameDB.Infrastructure.ExternalProviders.EGDataClient>()
         .AddStoreProviderResiliency("egdata", maxConcurrency: 3);   // 2 HTTP-запити/гру — community API
 
-    // ── Store providers  ─────────────────────────────────────────────
-    builder.Services.AddScoped<IStoreProvider, GameDB.Infrastructure.Providers.SteamStoreProvider>();
-    builder.Services.AddScoped<IStoreProvider, GameDB.Infrastructure.Providers.GogStoreProvider>();
-    builder.Services.AddScoped<IStoreProvider, GameDB.Infrastructure.Providers.EGDataStoreProvider>();
+    // ── Store providers & import ─────────────────────────────────────────────
+
+    builder.Services.AddScoped<GameDB.Application.Interfaces.IStoreProvider, GameDB.Infrastructure.Providers.SteamStoreProvider>();
+    builder.Services.AddScoped<GameDB.Application.Interfaces.IStoreProvider, GameDB.Infrastructure.Providers.GogStoreProvider>();
+    builder.Services.AddScoped<GameDB.Application.Interfaces.IStoreProvider, GameDB.Infrastructure.Providers.EGDataStoreProvider>();
 
     // ── Бізнес-сервіси ───────────────────────────────────────────────────────
     builder.Services.AddSingleton<SteamGameFilter>();
@@ -143,6 +146,7 @@ try
     builder.Services.AddScoped<ICatalogService, CatalogService>();
     builder.Services.AddScoped<IUserCollectionService, UserCollectionService>();
     builder.Services.AddScoped<INotificationRepository, NotificationRepository>();
+    builder.Services.AddHostedService<AlertCheckerHostedService>();
     builder.Services.AddScoped<IAdminRepository, AdminRepository>();
     builder.Services.AddScoped<IAdminService, AdminService>();
     builder.Services.AddSingleton<GameDB.Web.Services.AdminUserService>();

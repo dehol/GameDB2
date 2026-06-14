@@ -10,21 +10,18 @@ public sealed class GameAlertRepository(AppDbContext db) : IGameAlertRepository
     public async Task<GamePriceAlertContextDto> GetPriceContextAsync(
         int gameId, int? userId, CancellationToken ct = default)
     {
-        // 1. Отримуємо базову інформацію про гру
         var game = await db.Games.AsNoTracking()
             .Where(g => g.GameId == gameId)
             .Select(g => new { g.GameId, g.Name, g.HeaderImage })
             .FirstOrDefaultAsync(ct)
             ?? throw new InvalidOperationException("Гру не знайдено.");
 
-        // 2. Робимо запит через GameExternalIds, оскільки саме там лежать зв'язки з Shop та GameOffers
         var externalIds = await db.GameExternalIds.AsNoTracking()
             .Include(e => e.Shop)
             .Include(e => e.GameOffers)
             .Where(e => e.GameId == gameId)
             .ToListAsync(ct);
 
-        // 3. Витягуємо (flatten) всі оффери з усіх зовнішніх джерел цієї гри в один плаский список
         var offers = externalIds
             .SelectMany(e => e.GameOffers)
             .ToList();
@@ -55,7 +52,6 @@ public sealed class GameAlertRepository(AppDbContext db) : IGameAlertRepository
                 ? Math.Min(historicalLow.Value, currentLowest.Value)
                 : currentLowest;
 
-        // 4. Формуємо список магазинів на основі externalIds, які мають актуальні цінові пропозиції
         var shops = externalIds
             .Where(e => e.GameOffers.Any() && e.Shop != null)
             .GroupBy(e => new { e.ShopId, e.Shop.Name })
@@ -91,9 +87,29 @@ public sealed class GameAlertRepository(AppDbContext db) : IGameAlertRepository
             existing);
     }
 
+    /// <inheritdoc/>
+    public Task<List<Alert>> GetByUserIdAsync(int userId, CancellationToken ct = default)
+        => db.Alerts
+            .Where(a => a.UserId == userId)
+            .Include(a => a.Game)
+                .ThenInclude(g => g.GameExternalIds)
+                .ThenInclude(e => e.GameOffers)
+            .OrderByDescending(a => a.CreatedAt)
+            .ToListAsync(ct);
+
     public Task<Alert?> GetActiveAlertAsync(int userId, int gameId, CancellationToken ct = default)
         => db.Alerts
-            .FirstOrDefaultAsync(a => a.UserId == userId && a.GameId == gameId && a.TriggeredAt == null, ct);
+            .FirstOrDefaultAsync(
+                a => a.UserId == userId && a.GameId == gameId && a.TriggeredAt == null, ct);
+
+    /// <inheritdoc/>
+    public Task<List<Alert>> GetActiveAlertsAsync(CancellationToken ct = default)
+        => db.Alerts
+            .Where(a => a.TriggeredAt == null)
+            .Include(a => a.Game)
+                .ThenInclude(g => g.GameExternalIds)
+                .ThenInclude(e => e.GameOffers)
+            .ToListAsync(ct);
 
     public async Task AddAsync(Alert alert, CancellationToken ct = default)
     {

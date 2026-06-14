@@ -9,7 +9,7 @@ public sealed class UserCollectionService(
     IUserRepository users,
     IGameRepository games,
     IGameShopRepository shops,
-    IAlertRepository alerts,
+    IGameAlertRepository alertRepo,
     ISteamClient steam) : IUserCollectionService
 {
     public Task<List<UserGameListItemDto>> GetWishlistAsync(int userId, CancellationToken ct = default)
@@ -33,7 +33,7 @@ public sealed class UserCollectionService(
         var appIds = await steam.GetWishlistAppIdsAsync(steamId.SteamId!, ct);
         if (appIds.Count == 0)
             return ImportResultDto.Fail(
-                "Не вдалося отримати wishlist Steam. Перевірте приватність профілю та прив'язку Steam.");
+                "Не вдалося отримати wishlist Steam. Перевірте API-ключ, приватність профілю та прив'язку Steam.");
 
         var gameIds = await collections.MapExternalIdsToGameIdsAsync(
             appIds.Select(id => id.ToString()), "steam", ct);
@@ -80,16 +80,12 @@ public sealed class UserCollectionService(
 
     public async Task<List<AlertListItemDto>> GetAlertsAsync(int userId, CancellationToken ct = default)
     {
-        // Передаємо токен скасування в асинхронний метод, якщо він його підтримує
-        var list = await alerts.GetByUserIdAsync(userId, ct); 
+        var list = await alertRepo.GetByUserIdAsync(userId, ct);
 
         return list.Select(a =>
         {
-            // 1. Змінено ExternalIds на GameExternalIds
-            // 2. Змінено Select на SelectMany, а GameOffer — на GameOffers
             var best = a.Game.GameExternalIds
                 .SelectMany(e => e.GameOffers)
-                .Where(o => o != null) // Фільтруємо null пропозиції, якщо вони є
                 .OrderBy(o => o.FinalPrice ?? o.CurrentPrice)
                 .FirstOrDefault();
 
@@ -107,39 +103,10 @@ public sealed class UserCollectionService(
         }).ToList();
     }
 
-    public async Task CreateAlertAsync(int userId, CreateAlertDto dto, CancellationToken ct = default)
-    {
-        if (dto.TargetPrice <= 0)
-            throw new InvalidOperationException("Цільова ціна має бути більше нуля.");
-
-        if (await games.GetByIdAsync(dto.GameId, ct) is null)
-            throw new InvalidOperationException("Гру не знайдено.");
-
-        var duplicate = (await alerts.GetByUserIdAsync(userId, ct))
-            .Any(a => a.GameId == dto.GameId && a.TriggeredAt is null && a.TargetPrice == dto.TargetPrice);
-
-        if (duplicate)
-            throw new InvalidOperationException("Такий активний алерт вже існує.");
-
-        await alerts.AddAsync(new Alert
-        {
-            UserId      = userId,
-            GameId      = dto.GameId,
-            TargetPrice = dto.TargetPrice,
-            CreatedAt   = DateTime.UtcNow,
-        });
-    }
-
-    public async Task DeleteAlertAsync(int userId, int alertId, CancellationToken ct = default)
-    {
-        var alert = await alerts.GetByIdAsync(alertId);
-        if (alert is null || alert.UserId != userId)
-            throw new InvalidOperationException("Алерт не знайдено.");
-        await alerts.DeleteAsync(alertId);
-    }
-
     public Task<GameCollectionStateDto> GetCollectionStateAsync(int userId, int gameId, CancellationToken ct = default)
         => collections.GetCollectionStateAsync(userId, gameId, ct);
+
+    // ── helpers ──────────────────────────────────────────────────────────────
 
     private async Task<(string? SteamId, ImportResultDto? ErrorResult, string? Error)> RequireSteamIdAsync(
         int userId, CancellationToken ct)

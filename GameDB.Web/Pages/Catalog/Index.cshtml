@@ -283,22 +283,26 @@
     /**
      * catalogGoToPage(page) — єдина точка входу для пагінації каталогу.
      *
-     * ЧОМУ не hx-get на самих лінках:
-     *   HTMX v2 має регрес: елементи всередині #games-container після swap
-     *   іноді не виконують DOM-оновлення через hx-get, навіть якщо запит
-     *   проходить (сервер повертає 200 + partial). Симптом: URL змінюється
-     *   (hx-push-url відпрацьовує), але контент залишається старим.
+     * ЧОМУ не requestSubmit():
+     *   requestSubmit() + HTMX v2 має два баги:
+     *   1. Race condition: htmx:afterSettle скидає hiddenPage → '1' до того,
+     *      як HTMX v2 збирає FormData для сабміту — запит іде з page=1.
+     *   2. requestSubmit() валідує форму (yearFrom/yearTo мають min/max) —
+     *      якщо validation fails, submit event не виникає взагалі.
      *
-     * РІШЕННЯ — filterForm.requestSubmit():
-     *   filterForm знаходиться в sidebar (поза #games-container), тому ніколи
-     *   не перезаписується swap-ом. Його HTMX-зв'язка гарантовано робоча.
-     *   Встановлюємо hiddenPage → запускаємо submit → HTMX сам робить swap.
-     *   Після settle скидаємо hiddenPage назад у 1, щоб зміна фільтрів
-     *   завжди починала з першої сторінки.
+     * РІШЕННЯ — htmx.ajax() напряму:
+     *   Збираємо URL із FormData сами → говоримо HTMX що і куди — без
+     *   жодних submit events, validation, race conditions.
+     *   history.pushState синхронний → afterSettle читає правильний URL.
      */
     window.catalogGoToPage = function (page) {
+        var form = document.getElementById('filterForm');
         document.getElementById('hiddenPage').value = page;
-        document.getElementById('filterForm').requestSubmit();
+
+        var url = '/Catalog?' + new URLSearchParams(new FormData(form)).toString();
+        history.pushState(null, '', url);
+        htmx.ajax('GET', url, { target: '#games-container', swap: 'innerHTML' });
+
         return false; // блокуємо дефолтну навігацію <a>
     };
 

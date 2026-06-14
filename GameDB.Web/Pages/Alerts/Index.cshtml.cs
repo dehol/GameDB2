@@ -11,8 +11,13 @@ namespace GameDB.Web.Pages.Alerts;
 public class IndexModel : PageModel
 {
     private readonly IUserCollectionService _collections;
+    private readonly IGameAlertService      _alertService;
 
-    public IndexModel(IUserCollectionService collections) => _collections = collections;
+    public IndexModel(IUserCollectionService collections, IGameAlertService alertService)
+    {
+        _collections  = collections;
+        _alertService = alertService;
+    }
 
     public List<AlertListItemDto> Items { get; private set; } = [];
 
@@ -21,11 +26,11 @@ public class IndexModel : PageModel
         Items = await _collections.GetAlertsAsync(GetUserId());
     }
 
-    public async Task<IActionResult> OnPostDeleteAsync(int alertId)
+    public async Task<IActionResult> OnPostDeleteAsync(int gameId)
     {
         try
         {
-            await _collections.DeleteAlertAsync(GetUserId(), alertId);
+            await _alertService.DeleteAlertAsync(GetUserId(), gameId);
             TempData["CollectionSuccess"] = "Алерт видалено.";
         }
         catch (InvalidOperationException ex)

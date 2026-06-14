@@ -12,16 +12,17 @@
     <form method="post" class="d-none" id="antiForgeryForm">
         @Html.AntiForgeryToken()
     </form>
+
     <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
         <div>
             <h1 class="h3 mb-1">Адмін-панель</h1>
             <p class="text-muted small mb-0">Імпорти, синхронізація цін і покриття даних по іграх</p>
         </div>
-        <button type="button" class="btn btn-outline-secondary btn-sm" id="btnRefreshAll">
-            ↻ Оновити
-        </button>
+        <button type="button" class="btn btn-outline-secondary btn-sm" id="btnRefreshAll">↻ Оновити</button>
     </div>
 
+    
+    @* ── Stats ───────────────────────────────────────────────────────────  *@
     <div class="row g-3 mb-4" id="statsCards">
         <div class="col-md-4 col-lg-2">
             <div class="admin-stat-card">
@@ -61,80 +62,95 @@
         </div>
     </div>
 
+    
+    @* ── Operation panels ───────────────────────────────────────────────  *@
     <div class="row g-3 mb-4">
+
+        
+    @* Catalog import — fire-and-forget, per-store or all  *@
         <div class="col-lg-4">
             <div class="admin-panel">
                 <h2 class="h6 admin-panel-title">Каталоги магазинів</h2>
                 <p class="small text-muted mb-3">Базовий список ігор — додає нові, не торкає існуючі.</p>
-                <div class="d-grid gap-2">
-                    <button type="button" class="btn btn-outline-primary btn-sm"
-                            data-import-provider="steam" id="btnImportSteam">
-                        🎮 Import Steam
+                <div class="d-grid gap-2 mb-2" id="catalogImportBtns">
+                    <button type="button" class="btn btn-outline-secondary btn-sm" data-import-provider="steam">
+                        🎮 Steam
                     </button>
-                    <button type="button" class="btn btn-outline-secondary btn-sm"
-                            data-import-provider="gog" id="btnImportGog">
-                        🌌 Import GOG
+                    <button type="button" class="btn btn-outline-secondary btn-sm" data-import-provider="gog">
+                        🌌 GOG
                     </button>
-                    <button type="button" class="btn btn-outline-warning btn-sm"
-                            data-import-provider="epic" id="btnImportEgs">
-                        ⚡ Import EGS
+                    <button type="button" class="btn btn-outline-secondary btn-sm" data-import-provider="epic">
+                        ⚡ Epic Games
                     </button>
-                    <button type="button" class="btn btn-primary btn-sm"
-                            data-import-provider="" id="btnImportAll">
-                        🚀 Import All (паралельно)
+                    <button type="button" class="btn btn-primary btn-sm" data-import-provider="">
+                        🚀 Усі (паралельно)
                     </button>
                 </div>
-                <div id="basicImportResult" class="small text-muted mt-2"></div>
+                <div class="admin-job-status d-none" id="basicImportStatus"></div>
             </div>
         </div>
 
+        
+    @* Enrichment — background job, indeterminate progress  *@
         <div class="col-lg-4">
             <div class="admin-panel">
                 <h2 class="h6 admin-panel-title">Збагачення ігор</h2>
-                <p class="small text-muted mb-2">
+                <p class="small text-muted mb-3">
                     Деталі та метадані з магазинів. Черга: <strong id="pendingDetails">—</strong>
                 </p>
-                <div class="form-check form-switch small mb-2">
+                <div class="form-check form-switch small mb-3">
                     <input class="form-check-input" type="checkbox" id="enrichOverwrite" />
                     <label class="form-check-label" for="enrichOverwrite">Перезаписувати існуючі дані</label>
                 </div>
-                <button type="button" class="btn btn-success btn-sm w-100 mb-2" id="btnEnrichStart">
-                    ▶ Збагачення (усі магазини)
-                </button>
-                <button type="button" class="btn btn-outline-danger btn-sm w-100" id="btnEnrichStop">
-                    ■ Зупинити збагачення
-                </button>
+                <div class="d-flex gap-2">
+                    <button type="button" class="btn btn-primary btn-sm flex-grow-1" id="btnEnrichStart">
+                        ▶ Запустити
+                    </button>
+                    <button type="button" class="btn btn-outline-danger btn-sm" id="btnEnrichStop" title="Зупинити">
+                        ■
+                    </button>
+                </div>
+                <div class="admin-progress d-none mt-2" id="enrichProgressWrap">
+                    <div class="progress">
+                        <div class="progress-bar progress-bar-striped progress-bar-animated"
+                             id="enrichProgressBar" style="width: 100%"></div>
+                    </div>
+                    <div class="small text-muted mt-1" id="enrichProgressText"></div>
+                </div>
                 <div class="admin-job-status mt-2" id="enrichmentJobStatus"></div>
             </div>
         </div>
 
+        
+    @* Price sync — background job, determinate progress  *@
         <div class="col-lg-4">
             <div class="admin-panel">
-                <h2 class="h6 admin-panel-title">Ціни (усі магазини)</h2>
-                <p class="small text-muted mb-2">
+                <h2 class="h6 admin-panel-title">Синхронізація цін</h2>
+                <p class="small text-muted mb-3">
                     Остання синхронізація: <span id="lastPriceSync">—</span>
                 </p>
                 <div class="input-group input-group-sm mb-2">
                     <span class="input-group-text">Батч</span>
                     <input type="number" class="form-control" id="priceBatchSize" value="100" min="1" max="200" />
                 </div>
-                <div class="d-flex gap-2 mb-2">
-                    <button type="button" class="btn btn-warning btn-sm flex-grow-1" id="btnPriceStart">
-                        ▶ Синхронізувати всі ціни
+                <div class="d-flex gap-2 mb-3">
+                    <button type="button" class="btn btn-primary btn-sm flex-grow-1" id="btnPriceStart">
+                        ▶ Усі ціни
                     </button>
-                    <button type="button" class="btn btn-outline-danger btn-sm" id="btnPriceStop">■</button>
+                    <button type="button" class="btn btn-outline-danger btn-sm" id="btnPriceStop" title="Зупинити">
+                        ■
+                    </button>
                 </div>
-                <hr class="my-2" />
-                <p class="small text-muted mb-1">Тільки не синхронізовані після дати:</p>
+                <hr class="my-0 mb-3" />
+                <p class="small text-muted mb-1">Тільки не синхронізовані після:</p>
                 <div class="input-group input-group-sm mb-2">
-                    <span class="input-group-text">Після</span>
+                    <span class="input-group-text">Дата</span>
                     <input type="date" class="form-control" id="priceSinceDate" />
+                    <button type="button" class="btn btn-outline-primary btn-sm" id="btnPriceSinceStart"
+                            title="Синхронізувати з цієї дати">▶</button>
                 </div>
-                <button type="button" class="btn btn-outline-warning btn-sm w-100 mb-2" id="btnPriceSinceStart">
-                    ▶ Синхронізувати несинхронізовані
-                </button>
-                <div class="admin-progress d-none" id="priceProgressWrap">
-                    <div class="progress" style="height: 8px;">
+                <div class="admin-progress d-none mt-2" id="priceProgressWrap">
+                    <div class="progress">
                         <div class="progress-bar" id="priceProgressBar" style="width: 0%"></div>
                     </div>
                     <div class="small text-muted mt-1" id="priceProgressText"></div>
@@ -144,6 +160,8 @@
         </div>
     </div>
 
+    
+    @* ── Games coverage table ──────────────────────────────────────────────  *@
     <div class="admin-panel">
         <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
             <h2 class="h6 admin-panel-title mb-0">Покриття даних по іграх</h2>

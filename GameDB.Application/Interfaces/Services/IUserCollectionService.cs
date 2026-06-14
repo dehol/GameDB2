@@ -14,8 +14,11 @@ public interface IUserCollectionService
     Task RemoveFromLibraryAsync(int userId, int gameId, int shopId, CancellationToken ct = default);
     Task<ImportResultDto> ImportSteamLibraryAsync(int userId, CancellationToken ct = default);
 
+    /// <summary>
+    /// Повертає список алертів користувача для сторінки /Alerts.
+    /// Створення й видалення — через <see cref="IGameAlertService"/>.
+    /// </summary>
     Task<List<AlertListItemDto>> GetAlertsAsync(int userId, CancellationToken ct = default);
-    Task CreateAlertAsync(int userId, CreateAlertDto dto, CancellationToken ct = default);
-    Task DeleteAlertAsync(int userId, int alertId, CancellationToken ct = default);
+
     Task<GameCollectionStateDto> GetCollectionStateAsync(int userId, int gameId, CancellationToken ct = default);
 }

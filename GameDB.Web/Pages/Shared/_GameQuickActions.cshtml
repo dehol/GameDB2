@@ -1,49 +1,41 @@
 @model GameDB.Web.Pages.Shared.GameQuickActionsModel
 
-<div class="game-card-actions">
-    @if (Model.InWishlist)
-    {
-        @if (Model.UseDetailsRoute)
-        {
-            <form method="post" asp-page="/Catalog/Details" asp-route-id="@Model.GameId" asp-page-handler="RemoveWishlist" class="d-inline">
-                <button type="submit" class="btn btn-outline-secondary btn-sm">★ Wishlist</button>
-            </form>
-        }
-        else
-        {
-            <form method="post" asp-page="/Catalog/Index" asp-page-handler="RemoveWishlist" class="d-inline">
-                <input type="hidden" name="gameId" value="@Model.GameId" />
-                <input type="hidden" name="returnUrl" value="@Model.ReturnUrl" />
-                <button type="submit" class="btn btn-outline-secondary btn-sm py-0 px-1" title="У wishlist">★</button>
-            </form>
-        }
-    }
-    else
-    {
-        @if (Model.UseDetailsRoute)
-        {
-            <form method="post" asp-page="/Catalog/Details" asp-route-id="@Model.GameId" asp-page-handler="AddWishlist" class="d-inline">
-                <button type="submit" class="btn btn-outline-primary btn-sm">☆ Wishlist</button>
-            </form>
-        }
-        else
-        {
-            <form method="post" asp-page="/Catalog/Index" asp-page-handler="AddWishlist" class="d-inline">
-                <input type="hidden" name="gameId" value="@Model.GameId" />
-                <input type="hidden" name="returnUrl" value="@Model.ReturnUrl" />
-                <button type="submit" class="btn btn-outline-primary btn-sm py-0 px-1" title="В wishlist">☆</button>
-            </form>
-        }
-    }
+@{
+    var wishClass   = Model.InWishlist ? "btn-outline-secondary" : "btn-outline-primary";
+    var wishIcon    = Model.InWishlist ? "★" : "☆";
+    var wishTitle   = Model.InWishlist ? "Видалити з wishlist" : "Додати до wishlist";
+    var wishHandler = Model.InWishlist ? "RemoveWishlist" : "AddWishlist";
+}
 
+<div class="game-card-actions">
     @if (Model.UseDetailsRoute)
     {
-        <button type="button" class="btn btn-warning btn-sm" data-bs-toggle="modal" data-bs-target="#priceAlertModal">
+        @* Details page — full labels, route-based form *@
+        <form method="post" asp-page="/Catalog/Details" asp-route-id="@Model.GameId"
+              asp-page-handler="@wishHandler" class="d-inline">
+            <button type="submit" class="btn @wishClass btn-sm" title="@wishTitle">
+                @wishIcon Wishlist
+            </button>
+        </form>
+        <button type="button" class="btn btn-outline-warning btn-sm"
+                data-bs-toggle="modal" data-bs-target="#priceAlertModal"
+                title="Сповіщення про ціну">
             🔔 Price alert
         </button>
     }
     else
     {
-        <a href="/Catalog/Details/@Model.GameId?alert=true" class="btn btn-warning btn-sm py-0 px-1" title="Price alert">🔔</a>
+        @* Catalog cards — icon-only, hidden-input form *@
+        <form method="post" asp-page="/Catalog/Index" asp-page-handler="@wishHandler"
+              class="d-inline">
+            <input type="hidden" name="gameId"    value="@Model.GameId" />
+            <input type="hidden" name="returnUrl" value="@Model.ReturnUrl" />
+            <button type="submit" class="btn @wishClass btn-sm" title="@wishTitle">
+                @wishIcon
+            </button>
+        </form>
+        <a href="/Catalog/Details/@Model.GameId?alert=true"
+           class="btn btn-outline-warning btn-sm"
+           title="Сповіщення про ціну">🔔</a>
     }
 </div>
