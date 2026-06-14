@@ -1,41 +1,29 @@
 @model GameDB.Web.Pages.Shared.GameQuickActionsModel
 
 @{
-    var wishClass   = Model.InWishlist ? "btn-outline-secondary" : "btn-outline-primary";
-    var wishIcon    = Model.InWishlist ? "★" : "☆";
-    var wishTitle   = Model.InWishlist ? "Видалити з wishlist" : "Додати до wishlist";
+    var wishClass = Model.InWishlist ? "btn-outline-secondary" : "btn-outline-primary";
+    var wishIcon = Model.InWishlist ? "★" : "☆";
+    var wishTitle = Model.InWishlist ? "Видалити з wishlist" : "Додати до wishlist";
     var wishHandler = Model.InWishlist ? "RemoveWishlist" : "AddWishlist";
 }
 
 <div class="game-card-actions">
     @if (Model.UseDetailsRoute)
     {
-        @* Details page — full labels, route-based form *@
-        <form method="post" asp-page="/Catalog/Details" asp-route-id="@Model.GameId"
-              asp-page-handler="@wishHandler" class="d-inline">
-            <button type="submit" class="btn @wishClass btn-sm" title="@wishTitle">
-                @wishIcon Wishlist
-            </button>
+        <form method="post" asp-page="/Catalog/Details" asp-route-id="@Model.GameId" asp-page-handler="@wishHandler" class="d-inline">
+            @Html.AntiForgeryToken()
+            <button type="submit" class="btn @wishClass btn-sm" title="@wishTitle">@wishIcon Wishlist</button>
         </form>
-        <button type="button" class="btn btn-outline-warning btn-sm"
-                data-bs-toggle="modal" data-bs-target="#priceAlertModal"
-                title="Сповіщення про ціну">
-            🔔 Price alert
-        </button>
+        <button type="button" class="btn btn-outline-warning btn-sm" data-bs-toggle="modal" data-bs-target="#priceAlertModal" title="Сповіщення про ціну">🔔 Price alert</button>
     }
     else
     {
-        @* Catalog cards — icon-only, hidden-input form *@
-        <form method="post" asp-page="/Catalog/Index" asp-page-handler="@wishHandler"
-              class="d-inline">
-            <input type="hidden" name="gameId"    value="@Model.GameId" />
+        <form method="post" asp-page="/Catalog/Index" asp-page-handler="@wishHandler" class="d-inline">
+            @Html.AntiForgeryToken()
+            <input type="hidden" name="gameId" value="@Model.GameId" />
             <input type="hidden" name="returnUrl" value="@Model.ReturnUrl" />
-            <button type="submit" class="btn @wishClass btn-sm" title="@wishTitle">
-                @wishIcon
-            </button>
+            <button type="submit" class="btn @wishClass btn-sm" title="@wishTitle">@wishIcon</button>
         </form>
-        <a href="/Catalog/Details/@Model.GameId?alert=true"
-           class="btn btn-outline-warning btn-sm"
-           title="Сповіщення про ціну">🔔</a>
+        <a href="/Catalog/Details/@Model.GameId?alert=true" class="btn btn-outline-warning btn-sm" title="Сповіщення про ціну">🔔</a>
     }
 </div>

@@ -3,338 +3,300 @@
 @model GameDB.Web.Pages.Catalog.IndexModel
 @{
     ViewData["Title"] = "Каталог ігор";
-    var m = Model;
 }
 
-@section Styles {
-    <link rel="stylesheet" href="~/css/catalog.css" asp-append-version="true" />
-    <link rel="stylesheet" href="~/css/collections.css" asp-append-version="true" />
-}
+<style>
+    .sticky-sidebar {
+        position: sticky;
+        top: 20px;
+        max-height: calc(100vh - 120px);
+        overflow-y: auto;
+        scrollbar-width: thin;
+    }
+</style>
 
-<div class="d-flex justify-content-between align-items-center mb-3">
-    <h1 class="h3 mb-0">Каталог ігор</h1>
-</div>
-
-<div class="catalog-layout">
-
-    @* ══════════════════════════════════════════════════════════════════════════
-       SIDEBAR — залишається на місці при HTMX-запитах.
-       Форма є єдиним джерелом правди для фільтрів.
-
-       hx-get:        URL обробника (OnGetAsync перевіряє HX-Request header)
-       hx-target:     замінює innerHtml #games-container partial'ом
-       hx-push-url:   синхронізує адресний рядок після кожного запиту
-       hx-indicator:  показує spinner під час запиту
-       hx-trigger:    «change» з debounce — для select/checkbox;
-                      «keyup changed delay:500ms» з input[name=search] — для пошуку;
-                      «submit» — кнопка «Застосувати»
-    ══════════════════════════════════════════════════════════════════════════ *@
-    <aside class="catalog-sidebar">
-        <form id="filterForm"
-              method="get"
-              action="/Catalog"
-              hx-get="/Catalog"
-              hx-target="#games-container"
-              hx-push-url="true"
-              hx-indicator="#games-loading"
-              hx-trigger="change delay:300ms, submit">
-
-            @* Прихована синхронізація стану сортування і розміру сторінки.
-               Оновлюється через htmx:afterSettle у JS нижче, щоб при зміні
-               фільтра sort не скидався до дефолту. *@
-            <input type="hidden" id="hiddenSortBy"   name="sortBy"   value="@m.SortBy" />
-            <input type="hidden" id="hiddenSortDesc" name="sortDesc" value="@m.SortDesc.ToString().ToLower()" />
-            <input type="hidden" id="hiddenPage"     name="page"     value="1" />
-            <input type="hidden"                     name="pageSize" value="@m.PageSize" />
-
-            @* ── Пошук ──────────────────────────────────────────────────────── *@
-            <div class="sidebar-section">
-                <div class="section-title">Пошук</div>
-                <div class="input-group input-group-sm">
-                    <input type="text"
-                           name="search"
-                           id="searchInput"
-                           class="form-control"
-                           placeholder="Назва гри..."
-                           value="@m.Search"
-                           autocomplete="off"
-                           hx-get="/Catalog"
-                           hx-target="#games-container"
-                           hx-push-url="true"
-                           hx-indicator="#games-loading"
-                           hx-trigger="keyup changed delay:500ms"
-                           hx-include="#filterForm" />
-                    <button class="btn btn-outline-secondary" type="submit">🔍</button>
+<div class="container-fluid mt-4">
+    
+    <div class="card shadow-sm p-3 mb-4 bg-light">
+        <div class="row g-3 align-items-center">
+            
+            <div class="col-lg-5 col-md-6">
+                <div class="input-group">
+                    <input type="text" name="search" form="filterForm" class="form-control text-dark" 
+                           placeholder="Пошук ігор за назвою... (Натисніть Enter або лупу)" value="@Model.Search" />
+                    <button class="btn btn-primary" type="submit" form="filterForm" title="Шукати">
+                        🔍 Пошук
+                    </button>
                 </div>
             </div>
 
-            @* ── Жанри ──────────────────────────────────────────────────────── *@
-            @if (m.Sidebar.Genres.Count > 0)
-            {
-                <div class="sidebar-section">
-                    <div class="section-title">Жанри</div>
-                    <div class="genre-list-inner">
-                        @foreach (var genre in m.Sidebar.Genres)
-                        {
-                            <div class="form-check d-flex align-items-center">
-                                <input class="form-check-input"
-                                       type="checkbox"
-                                       name="genres"
-                                       value="@genre.GenreId"
-                                       id="g@(genre.GenreId)"
-                                       @(m.Genres.Contains(genre.GenreId) ? "checked" : "") />
-                                <label class="form-check-label flex-grow-1"
-                                       for="g@(genre.GenreId)">@genre.Name</label>
-                                <span class="genre-count">@genre.GameCount</span>
-                            </div>
-                        }
+            <div class="col-lg-7 col-md-6 text-md-end">
+                <span class="small fw-bold text-muted me-2 d-inline-block d-md-none d-lg-inline-block">Сортувати:</span>
+                <div class="btn-group btn-group-sm flex-wrap" role="group">
+                    <button type="button" class="btn btn-outline-secondary @(Model.SortBy == CatalogSortBy.Popularity ? "active fw-bold" : "")" onclick="applySort('Popularity')">
+                        Популярність @(Model.SortBy == CatalogSortBy.Popularity ? (Model.SortDesc ? "▼" : "▲") : "")
+                    </button>
+                    <button type="button" class="btn btn-outline-secondary @(Model.SortBy == CatalogSortBy.Name ? "active fw-bold" : "")" onclick="applySort('Name')">
+                        Назва @(Model.SortBy == CatalogSortBy.Name ? (Model.SortDesc ? "▼" : "▲") : "")
+                    </button>
+                    <button type="button" class="btn btn-outline-secondary @(Model.SortBy == CatalogSortBy.ReleaseDate ? "active fw-bold" : "")" onclick="applySort('ReleaseDate')">
+                        Реліз @(Model.SortBy == CatalogSortBy.ReleaseDate ? (Model.SortDesc ? "▼" : "▲") : "")
+                    </button>
+                    <button type="button" class="btn btn-outline-secondary @(Model.SortBy == CatalogSortBy.Rating ? "active fw-bold" : "")" onclick="applySort('Rating')">
+                        Рейтинг @(Model.SortBy == CatalogSortBy.Rating ? (Model.SortDesc ? "▼" : "▲") : "")
+                    </button>
+                    <button type="button" class="btn btn-outline-secondary @(Model.SortBy == CatalogSortBy.Price ? "active fw-bold" : "")" onclick="applySort('Price')">
+                        Ціна @(Model.SortBy == CatalogSortBy.Price ? (Model.SortDesc ? "▼" : "▲") : "")
+                    </button>
+                    <button type="button" class="btn btn-outline-secondary @(Model.SortBy == CatalogSortBy.Discount ? "active fw-bold" : "")" onclick="applySort('Discount')">
+                        Знижка @(Model.SortBy == CatalogSortBy.Discount ? (Model.SortDesc ? "▼" : "▲") : "")
+                    </button>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <div class="row">
+        
+        <div class="col-md-3">
+            <form method="get" id="filterForm" class="card shadow-sm p-3 mb-4 sticky-sidebar bg-white">
+                
+                <div class="d-grid gap-2 mb-3 border-bottom pb-3 bg-white">
+                    <button type="submit" class="btn btn-success fw-bold shadow-sm">Застосувати фільтри</button>
+                    <a href="/Catalog" class="btn btn-sm btn-outline-secondary">Скинути все</a>
+                </div>
+
+                <input type="hidden" id="hiddenSortBy" name="sortBy" value="@Model.SortBy" />
+                <input type="hidden" id="hiddenSortDesc" name="sortDesc" value="@Model.SortDesc.ToString().ToLower()" />
+                <input type="hidden" name="currentPage" value="1" />
+
+                <h6 class="text-uppercase text-muted fs-7 fw-bold mb-3">Параметри</h6>
+
+                <div class="mb-3">
+                    <label class="form-label small fw-bold text-muted">Тип оплати</label>
+                    <select name="isFree" class="form-select form-select-sm">
+                        <option value="" selected="@(Model.IsFree == null ? "selected" : null)">Всі ігри</option>
+                        <option value="true" selected="@(Model.IsFree == true ? "selected" : null)">Безкоштовні</option>
+                        <option value="false" selected="@(Model.IsFree == false ? "selected" : null)">Платні</option>
+                    </select>
+                </div>
+
+                @if (Model.Sidebar?.Shops?.Any() == true)
+                {
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold text-muted">Магазин</label>
+                        <select name="shopId" class="form-select form-select-sm">
+                            <option value="">Всі магазини</option>
+                            @foreach (var shop in Model.Sidebar.Shops)
+                            {
+                                <option value="@shop.ShopId" selected="@(Model.ShopId == shop.ShopId ? "selected" : null)">@shop.Name</option>
+                            }
+                        </select>
+                    </div>
+                }
+
+                <div class="mb-3">
+                    <label class="form-label small fw-bold text-muted">Ціна (грн)</label>
+                    <div class="d-flex gap-2">
+                        <input type="number" name="minPrice" class="form-control form-control-sm" placeholder="Від" value="@Model.MinPrice" step="0.01" />
+                        <input type="number" name="maxPrice" class="form-control form-control-sm" placeholder="До (@Model.Sidebar?.MaxPrice)" value="@Model.MaxPrice" step="0.01" />
                     </div>
                 </div>
-            }
 
-            @* ── Теги ────────────────────────────────────────────────────────── *@
-            @if (m.Sidebar.Tags.Count > 0)
-            {
-                <div class="sidebar-section">
-                    <div class="section-title">Теги</div>
-                    <div class="genre-list-inner">
-                        @foreach (var tag in m.Sidebar.Tags)
-                        {
-                            <div class="form-check d-flex align-items-center">
-                                <input class="form-check-input"
-                                       type="checkbox"
-                                       name="tags"
-                                       value="@tag.TagId"
-                                       id="t@(tag.TagId)"
-                                       @(m.Tags.Contains(tag.TagId) ? "checked" : "") />
-                                <label class="form-check-label flex-grow-1"
-                                       for="t@(tag.TagId)">@tag.Name</label>
-                                <span class="genre-count">@tag.GameCount</span>
-                            </div>
-                        }
+                <div class="row g-2 mb-3">
+                    <div class="col-6">
+                        <label class="form-label small fw-bold text-muted">Знижка %</label>
+                        <input type="number" name="minDiscount" class="form-control form-control-sm" placeholder="Від 0" value="@Model.MinDiscount" min="0" max="99" />
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label small fw-bold text-muted">Рейтинг</label>
+                        <input type="number" name="minRating" class="form-control form-control-sm" placeholder=">= 0.0" value="@Model.MinRating" min="0" max="5" step="0.1" />
                     </div>
                 </div>
-            }
 
-            @* ── Магазин ─────────────────────────────────────────────────────── *@
-            @if (m.Sidebar.Shops.Count > 0)
-            {
-                <div class="sidebar-section">
-                    <div class="section-title">Магазин</div>
-                    <select name="shopId" class="form-select form-select-sm">
-                        <option value="">Усі магазини</option>
-                        @foreach (var shop in m.Sidebar.Shops)
-                        {
-                            @* <!option> вимикає OptionTagHelper і дозволяє @(...) в attribute area *@
-                            <!option value="@shop.ShopId" @(m.ShopId == shop.ShopId ? "selected" : "")>@shop.Name</!option>
-                        }
-                    </select>
+                <div class="mb-3">
+                    <label class="form-label small fw-bold text-muted">Рік виходу</label>
+                    <div class="d-flex gap-2">
+                        <input type="number" name="yearFrom" class="form-control form-control-sm" placeholder="З @Model.Sidebar?.MinYear" value="@Model.YearFrom" />
+                        <input type="number" name="yearTo" class="form-control form-control-sm" placeholder="По @Model.Sidebar?.MaxYear" value="@Model.YearTo" />
+                    </div>
                 </div>
-            }
 
-            @* ── Ціна ────────────────────────────────────────────────────────── *@
-            <div class="sidebar-section">
-                <div class="section-title">Ціна</div>
-                <div class="d-flex gap-2">
-                    <input type="number"
-                           name="minPrice"
-                           class="form-control form-control-sm"
-                           placeholder="Від"
-                           value="@m.MinPrice"
-                           min="0"
-                           step="0.01" />
-                    <input type="number"
-                           name="maxPrice"
-                           class="form-control form-control-sm"
-                           placeholder="До"
-                           value="@m.MaxPrice"
-                           min="0"
-                           step="0.01" />
-                </div>
-                <div class="form-check mt-2">
-                    <input class="form-check-input"
-                           type="checkbox"
-                           name="isFree"
-                           value="true"
-                           id="chkFree"
-                           @(m.IsFree == true ? "checked" : "") />
-                    <label class="form-check-label small" for="chkFree">
-                        Тільки безкоштовні
-                    </label>
-                </div>
-            </div>
+                @if (Model.Sidebar?.Developers?.Any() == true)
+                {
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold text-muted">Розробник</label>
+                        <select name="developerId" class="form-select form-select-sm">
+                            <option value="">Всі розробники</option>
+                            @foreach (var dev in Model.Sidebar.Developers)
+                            {
+                                <option value="@dev.DeveloperId" selected="@(Model.DeveloperId == dev.DeveloperId ? "selected" : null)">@dev.Name</option>
+                            }
+                        </select>
+                    </div>
+                }
 
-            @* ── Мін. знижка ─────────────────────────────────────────────────── *@
-            <div class="sidebar-section">
-                <div class="section-title">Мін. знижка</div>
-                <select name="minDiscount" class="form-select form-select-sm">
-                    <option value="">Будь-яка</option>
-                    @foreach (var pct in new[] { 10, 25, 50, 75, 90 })
-                    {
-                        <!option value="@pct" @(m.MinDiscount == pct ? "selected" : "")>≥ @pct%</!option>
-                    }
-                </select>
-            </div>
+                @if (Model.Sidebar?.Publishers?.Any() == true)
+                {
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold text-muted">Видавець</label>
+                        <select name="publisherId" class="form-select form-select-sm">
+                            <option value="">Всі видавці</option>
+                            @foreach (var pub in Model.Sidebar.Publishers)
+                            {
+                                <option value="@pub.PublisherId" selected="@(Model.PublisherId == pub.PublisherId ? "selected" : null)">@pub.Name</option>
+                            }
+                        </select>
+                    </div>
+                }
 
-            @* ── Мін. рейтинг ────────────────────────────────────────────────── *@
-            <div class="sidebar-section">
-                <div class="section-title">Мін. рейтинг</div>
-                <select name="minRating" class="form-select form-select-sm">
-                    <option value="">Будь-який</option>
-                    @foreach (var r in new[] { 50.0, 60.0, 70.0, 80.0, 90.0 })
-                    {
-                        <!option value="@r" @(m.MinRating == r ? "selected" : "")>≥ @r%</!option>
-                    }
-                </select>
-            </div>
+                @if (Model.Sidebar?.Genres?.Any() == true)
+                {
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold text-muted">Жанри</label>
+                        <div class="border rounded p-2" style="max-height: 140px; overflow-y: auto; background-color: #f8f9fa;">
+                            @foreach (var genre in Model.Sidebar.Genres)
+                            {
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" name="genreIds" value="@genre.GenreId" id="genre_@genre.GenreId" checked="@(Model.GenreIds.Contains(genre.GenreId) ? "checked" : null)" />
+                                    <label class="form-check-label small" for="genre_@genre.GenreId">
+                                        @genre.Name <span class="text-muted text-xs">(@genre.GameCount)</span>
+                                    </label>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
 
-            @* ── Рік випуску ─────────────────────────────────────────────────── *@
-            <div class="sidebar-section">
-                <div class="section-title">Рік випуску</div>
-                <div class="d-flex gap-2">
-                    <input type="number"
-                           name="yearFrom"
-                           class="form-control form-control-sm"
-                           placeholder="З"
-                           value="@m.YearFrom"
-                           min="@m.Sidebar.MinYear"
-                           max="@m.Sidebar.MaxYear" />
-                    <input type="number"
-                           name="yearTo"
-                           class="form-control form-control-sm"
-                           placeholder="По"
-                           value="@m.YearTo"
-                           min="@m.Sidebar.MinYear"
-                           max="@m.Sidebar.MaxYear" />
-                </div>
-            </div>
-
-            @* ── Розробник ───────────────────────────────────────────────────── *@
-            @if (m.Sidebar.Developers.Count > 0)
-            {
-                <div class="sidebar-section">
-                    <div class="section-title">Розробник</div>
-                    <select name="developerId" class="form-select form-select-sm">
-                        <option value="">Усі розробники</option>
-                        @foreach (var dev in m.Sidebar.Developers)
-                        {
-                            <!option value="@dev.DeveloperId" @(m.DeveloperId == dev.DeveloperId ? "selected" : "")>@dev.Name</!option>
-                        }
-                    </select>
-                </div>
-            }
-
-            @* ── Видавець ────────────────────────────────────────────────────── *@
-            @if (m.Sidebar.Publishers.Count > 0)
-            {
-                <div class="sidebar-section">
-                    <div class="section-title">Видавець</div>
-                    <select name="publisherId" class="form-select form-select-sm">
-                        <option value="">Усі видавці</option>
-                        @foreach (var pub in m.Sidebar.Publishers)
-                        {
-                            <!option value="@pub.PublisherId" @(m.PublisherId == pub.PublisherId ? "selected" : "")>@pub.Name</!option>
-                        }
-                    </select>
-                </div>
-            }
-
-            <div class="d-grid gap-2 mt-3">
-                <button type="submit" class="btn btn-primary btn-sm">Застосувати</button>
-                <a href="/Catalog"
-                   hx-get="/Catalog"
-                   hx-target="#games-container"
-                   hx-push-url="true"
-                   class="btn btn-outline-secondary btn-sm">Скинути фільтри</a>
-            </div>
-
-        </form>
-    </aside>
-
-    @* ══════════════════════════════════════════════════════════════════════════
-       MAIN CONTENT
-       #games-container — HTMX target: при кожному hx-get сюди вставляється
-       HTML з _GamesListPartial (active filters + sort bar + grid + pagination).
-       При звичайному GET partial рендериться inline через Html.PartialAsync.
-    ══════════════════════════════════════════════════════════════════════════ *@
-    <div class="catalog-main">
-
-        @* Спіннер — видимий лише під час HTMX-запиту (клас htmx-request) *@
-        <div id="games-loading" class="htmx-indicator catalog-loading">
-            <div class="spinner-border spinner-border-sm text-primary" role="status">
-                <span class="visually-hidden">Завантаження...</span>
-            </div>
-            <span class="ms-2 text-muted small">Пошук ігор...</span>
+                @if (Model.Sidebar?.Tags?.Any() == true)
+                {
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold text-muted">Теги</label>
+                        <div class="border rounded p-2" style="max-height: 140px; overflow-y: auto; background-color: #f8f9fa;">
+                            @foreach (var tag in Model.Sidebar.Tags)
+                            {
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" name="tagIds" value="@tag.TagId" id="tag_@tag.TagId" checked="@(Model.TagIds.Contains(tag.TagId) ? "checked" : null)" />
+                                    <label class="form-check-label small" for="tag_@tag.TagId">
+                                        @tag.Name <span class="text-muted text-xs">(@tag.GameCount)</span>
+                                    </label>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
+            </form>
         </div>
 
-        <div id="games-container">
-            @await Html.PartialAsync("_GamesListPartial", Model)
+        <div class="col-md-9">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h2 class="h5 text-secondary mb-0">Знайдено ігор: @(Model.Result?.TotalCount ?? 0)</h2>
+            </div>
+
+            @if (Model.Result?.Items?.Any() == true)
+            {
+                <div class="row row-cols-1 row-cols-sm-2 row-cols-md-3 row-cols-lg-3 g-4 mb-5">
+                    @foreach (var game in Model.Result.Items)
+                    {
+                        <div class="col">
+                            <div class="card h-100 shadow-sm position-relative">
+                                @if (game.Rating.HasValue && game.Rating > 0)
+                                {
+                                    <span class="badge bg-dark position-absolute top-0 start-0 m-2 text-warning opacity-90">
+                                        ⭐ @game.Rating.Value.ToString("F1")
+                                    </span>
+                                }
+
+                                @if (!string.IsNullOrEmpty(game.HeaderImage))
+                                {
+                                    <img src="@game.HeaderImage" class="card-img-top" alt="@game.Name" style="object-fit: cover; height: 160px;" />
+                                }
+                                else
+                                {
+                                    <div class="bg-secondary text-white d-flex align-items-center justify-content-center" style="height: 160px;">
+                                        <span class="small">Немає обкладинки</span>
+                                    </div>
+                                }
+
+                                <div class="card-body d-flex flex-column">
+                                    <h5 class="card-title h6 text-truncate mb-1" title="@game.Name">@game.Name</h5>
+                                    
+                                    <p class="card-text small text-muted text-truncate mb-3">
+                                        @(game.Genres?.Any() == true ? string.Join(", ", game.Genres) : "Без жанру")
+                                    </p>
+
+                                    <div class="mt-auto d-flex align-items-center justify-content-between">
+                                        <div>
+                                            @if (game.IsFree)
+                                            {
+                                                <span class="badge bg-success fs-6">Free</span>
+                                            }
+                                            else if (game.BestPrice.HasValue)
+                                            {
+                                                <div class="d-flex align-items-center gap-1">
+                                                    @if (game.BestDiscount > 0)
+                                                    {
+                                                        <span class="badge bg-danger">-%@game.BestDiscount</span>
+                                                    }
+                                                    <span class="fw-bold">@game.BestPrice.Value.ToString("0.##") грн</span>
+                                                </div>
+                                            }
+                                            else
+                                            {
+                                                <span class="text-muted small">Немає пропозицій</span>
+                                            }
+                                        </div>
+                                        <a href="/Catalog/Details/@game.GameId" class="btn btn-sm btn-outline-primary">Деталі</a>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                </div>
+
+                <nav>
+                    <ul class="pagination justify-content-center">
+                        @if (Model.Result.Page > 1)
+                        {
+                            <li class="page-item"><a class="page-link" href="@Model.GetPageUrl(Model.Result.Page - 1)">Попередня</a></li>
+                        }
+                        @for (int i = 1; i <= Model.Result.TotalPages && i <= 10; i++)
+                        {
+                            <li class="page-item @(i == Model.Result.Page ? "active" : "")"><a class="page-link" href="@Model.GetPageUrl(i)">@i</a></li>
+                        }
+                        @if (Model.Result.Page < Model.Result.TotalPages)
+                        {
+                            <li class="page-item"><a class="page-link" href="@Model.GetPageUrl(Model.Result.Page + 1)">Наступна</a></li>
+                        }
+                    </ul>
+                </nav>
+            }
+            else
+            {
+                <div class="alert alert-warning shadow-sm">Ігор не знайдено за обраними критеріями фільтрації. Спробуйте змінити параметри.</div>
+            }
         </div>
 
     </div>
 </div>
 
-@section Scripts {
-    @* HTMX — підключається тут (специфічно для каталогу), а не в _Layout *@
-    <script src="https://cdn.jsdelivr.net/npm/htmx.org@2.0.4/dist/htmx.min.js"
-            crossorigin="anonymous"></script>
+<script>
+    function applySort(sortByField) {
+        const sortByInput = document.getElementById('hiddenSortBy');
+        const sortDescInput = document.getElementById('hiddenSortDesc');
+        const form = document.getElementById('filterForm');
 
-    <script>
-    /**
-     * catalogGoToPage(page) — єдина точка входу для пагінації каталогу.
-     *
-     * ЧОМУ не requestSubmit():
-     *   requestSubmit() + HTMX v2 має два баги:
-     *   1. Race condition: htmx:afterSettle скидає hiddenPage → '1' до того,
-     *      як HTMX v2 збирає FormData для сабміту — запит іде з page=1.
-     *   2. requestSubmit() валідує форму (yearFrom/yearTo мають min/max) —
-     *      якщо validation fails, submit event не виникає взагалі.
-     *
-     * РІШЕННЯ — htmx.ajax() напряму:
-     *   Збираємо URL із FormData сами → говоримо HTMX що і куди — без
-     *   жодних submit events, validation, race conditions.
-     *   history.pushState синхронний → afterSettle читає правильний URL.
-     */
-    window.catalogGoToPage = function (page) {
-        var form = document.getElementById('filterForm');
-        document.getElementById('hiddenPage').value = page;
+        if (sortByInput.value === sortByField) {
+            // Якщо клікнули на те саме поле — перемикаємо напрямок (desc <-> asc)
+            sortDescInput.value = (sortDescInput.value === 'true') ? 'false' : 'true';
+        } else {
+            // Якщо нове поле — встановлюємо його і вмикаємо desc за замовчуванням
+            sortByInput.value = sortByField;
+            sortDescInput.value = 'true';
+        }
 
-        var url = '/Catalog?' + new URLSearchParams(new FormData(form)).toString();
-        history.pushState(null, '', url);
-        htmx.ajax('GET', url, { target: '#games-container', swap: 'innerHTML' });
-
-        return false; // блокуємо дефолтну навігацію <a>
-    };
-
-    /**
-     * Після кожного HTMX-settle:
-     *   1. Синхронізуємо sortBy / sortDesc із URL (sort-лінки в partial
-     *      змінюють URL через hx-push-url, форма повинна знати новий стан).
-     *   2. Скидаємо hiddenPage → 1, щоб наступна зміна фільтра стартувала
-     *      з першої сторінки (а не з тієї, на яку щойно перейшли).
-     */
-    document.body.addEventListener('htmx:afterSettle', function () {
-        const params     = new URLSearchParams(window.location.search);
-        const sortBy     = document.getElementById('hiddenSortBy');
-        const sortDesc   = document.getElementById('hiddenSortDesc');
-        const hiddenPage = document.getElementById('hiddenPage');
-
-        if (sortBy   && params.has('sortBy'))   sortBy.value   = params.get('sortBy');
-        if (sortDesc && params.has('sortDesc')) sortDesc.value = params.get('sortDesc');
-        if (hiddenPage) hiddenPage.value = '1';
-    });
-
-    /**
-     * При звичайному (не-HTMX) submit форми — прокидаємо поточне сортування
-     * перед відправкою (на випадок класичного сабміту без JS або HTMX).
-     */
-    document.getElementById('filterForm')
-        .addEventListener('submit', function () {
-            const params   = new URLSearchParams(window.location.search);
-            const sortBy   = document.getElementById('hiddenSortBy');
-            const sortDesc = document.getElementById('hiddenSortDesc');
-            if (params.has('sortBy')   && sortBy)   sortBy.value   = params.get('sortBy');
-            if (params.has('sortDesc') && sortDesc) sortDesc.value = params.get('sortDesc');
-        });
-    </script>
-}
+        // Сабмітимо головну форму фільтрів
+        form.submit();
+    }
+</script>

@@ -7,8 +7,7 @@
     var curFmt = c.CurrentLowest?.ToString("0.##") ?? "—";
     var histFmt = c.HistoricalLow?.ToString("0.##") ?? "—";
     var baseFmt = c.BasePrice?.ToString("0.##") ?? "—";
-    var defaultTarget = ex?.TargetPrice
-        ?? (c.CurrentLowest.HasValue ? c.CurrentLowest * 0.9m : (decimal?)null);
+    var defaultTarget = ex?.TargetPrice ?? (c.CurrentLowest.HasValue ? c.CurrentLowest * 0.9m : (decimal?)null);
 }
 
 <div class="modal fade price-alert-modal" id="priceAlertModal" tabindex="-1" aria-labelledby="priceAlertModalLabel" aria-hidden="true"
@@ -17,150 +16,134 @@
      data-historical-low="@(c.HistoricalLow?.ToString(System.Globalization.CultureInfo.InvariantCulture))"
      data-base-price="@(c.BasePrice?.ToString(System.Globalization.CultureInfo.InvariantCulture))"
      data-open="@(ViewData["OpenAlertModal"]?.ToString()?.ToLower() ?? "false")">
-  <div class="modal-dialog modal-lg modal-dialog-scrollable">
-    <div class="modal-content">
-      <form method="post" asp-page="/Catalog/Details" asp-route-id="@c.GameId" asp-page-handler="SaveAlert">
-        <div class="modal-header">
-          <div class="price-alert-game w-100">
-            @if (!string.IsNullOrEmpty(c.HeaderImage))
-            {
-              <img src="@c.HeaderImage" alt="@c.GameName" />
-            }
-            <div class="flex-grow-1">
-              <h5 class="modal-title" id="priceAlertModalLabel">@c.GameName</h5>
-              <div class="price-alert-stats mt-2">
-                <div>Поточна найнижча: <strong>@curFmt @c.Currency</strong></div>
-                <div>Історичний мінімум: <strong>@histFmt @c.Currency</strong></div>
-                <div>Базова ціна: <strong>@baseFmt @c.Currency</strong></div>
-              </div>
-            </div>
-          </div>
-          <button type="button" class="btn-close ms-2" data-bs-dismiss="modal" aria-label="Закрити"></button>
-        </div>
-
-        <div class="modal-body">
-          <div class="price-alert-target-row">
-            <label class="form-label mb-0 fw-semibold" for="alertTargetPrice">Ваша цільова ціна:</label>
-            <div class="input-group input-group-sm">
-              <span class="input-group-text">@c.Currency</span>
-              <input type="number" class="form-control" id="alertTargetPrice" name="TargetPrice"
-                     step="0.01" min="0.01" required
-                     value="@(defaultTarget?.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture))" />
-            </div>
-            <button type="button" class="btn btn-outline-secondary btn-sm" data-price-action="beat-current">Нижче поточної</button>
-            @if (c.HistoricalLow.HasValue)
-            {
-              <button type="button" class="btn btn-outline-secondary btn-sm" data-price-action="match-historical">= Історичний мін.</button>
-            }
-          </div>
-
-          <div class="price-alert-shortcuts">
-            <h6>Швидкі варіанти</h6>
-
-            @if (c.CurrentLowest.HasValue)
-            {
-              <div class="shortcut-group">
-                <div class="shortcut-group-title">Поточна найнижча (@curFmt @c.Currency)</div>
-                <div class="shortcut-btns">
-                  <button type="button" class="btn btn-outline-primary btn-sm" data-price-group="current" data-price-action="beat">Нижче</button>
-                  @foreach (var p in new[] { 10, 20, 30 })
-                  {
-                    <button type="button" class="btn btn-outline-secondary btn-sm" data-price-group="current" data-price-action="pct" data-pct="@p">-@p%</button>
-                  }
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <form method="post" asp-page="/Catalog/Details" asp-route-id="@c.GameId" asp-page-handler="SaveAlert">
+                @Html.AntiForgeryToken()
+                <div class="modal-header">
+                    <div class="price-alert-game w-100">
+                        @if (!string.IsNullOrEmpty(c.HeaderImage))
+                        {
+                            <img src="@c.HeaderImage" alt="@c.GameName" />
+                        }
+                        <div class="flex-grow-1">
+                            <h5 class="modal-title" id="priceAlertModalLabel">@c.GameName</h5>
+                            <div class="price-alert-stats mt-2">
+                                <div>Поточна найнижча: <strong>@curFmt @c.Currency</strong></div>
+                                <div>Історичний мінімум: <strong>@histFmt @c.Currency</strong></div>
+                                <div>Базова ціна: <strong>@baseFmt @c.Currency</strong></div>
+                            </div>
+                        </div>
+                    </div>
+                    <button type="button" class="btn-close ms-2" data-bs-dismiss="modal" aria-label="Закрити"></button>
                 </div>
-              </div>
-            }
 
-            @if (c.HistoricalLow.HasValue)
-            {
-              <div class="shortcut-group">
-                <div class="shortcut-group-title">Історичний мінімум (@histFmt @c.Currency)</div>
-                <div class="shortcut-btns">
-                  <button type="button" class="btn btn-outline-primary btn-sm" data-price-group="historical" data-price-action="match">Дорівняти</button>
-                  <button type="button" class="btn btn-outline-primary btn-sm" data-price-group="historical" data-price-action="beat">Нижче</button>
-                  @foreach (var p in new[] { 10, 20 })
-                  {
-                    <button type="button" class="btn btn-outline-secondary btn-sm" data-price-group="historical" data-price-action="pct" data-pct="@p">-@p%</button>
-                  }
+                <div class="modal-body">
+                    <div class="price-alert-target-row">
+                        <label class="form-label mb-0 fw-semibold" for="alertTargetPrice">Ваша цільова ціна:</label>
+                        <div class="input-group input-group-sm">
+                            <span class="input-group-text">@c.Currency</span>
+                            <input type="number" class="form-control" id="alertTargetPrice" name="TargetPrice" step="0.01" min="0.01" required value="@(defaultTarget?.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture))" />
+                        </div>
+                        <button type="button" class="btn btn-outline-secondary btn-sm" data-price-action="beat-current">Нижче поточної</button>
+                        @if (c.HistoricalLow.HasValue)
+                        {
+                            <button type="button" class="btn btn-outline-secondary btn-sm" data-price-action="match-historical">= Історичний мін.</button>
+                        }
+                    </div>
+
+                    <div class="price-alert-shortcuts">
+                        <h6>Швидкі варіанти</h6>
+
+                        @if (c.CurrentLowest.HasValue)
+                        {
+                            <div class="shortcut-group">
+                                <div class="shortcut-group-title">Поточна найнижча (@curFmt @c.Currency)</div>
+                                <div class="shortcut-btns">
+                                    <button type="button" class="btn btn-outline-primary btn-sm" data-price-group="current" data-price-action="beat">Нижче</button>
+                                    @foreach (var p in new[] { 10, 20, 30 })
+                                    {
+                                        <button type="button" class="btn btn-outline-secondary btn-sm" data-price-group="current" data-price-action="pct" data-pct="@p">-@p%</button>
+                                    }
+                                </div>
+                            </div>
+                        }
+
+                        @if (c.HistoricalLow.HasValue)
+                        {
+                            <div class="shortcut-group">
+                                <div class="shortcut-group-title">Історичний мінімум (@histFmt @c.Currency)</div>
+                                <div class="shortcut-btns">
+                                    <button type="button" class="btn btn-outline-primary btn-sm" data-price-group="historical" data-price-action="match">Дорівняти</button>
+                                    <button type="button" class="btn btn-outline-primary btn-sm" data-price-group="historical" data-price-action="beat">Нижче</button>
+                                    @foreach (var p in new[] { 10, 20 })
+                                    {
+                                        <button type="button" class="btn btn-outline-secondary btn-sm" data-price-group="historical" data-price-action="pct" data-pct="@p">-@p%</button>
+                                    }
+                                </div>
+                            </div>
+                        }
+
+                        @if (c.BasePrice.HasValue)
+                        {
+                            <div class="shortcut-group">
+                                <div class="shortcut-group-title">Базова ціна (@baseFmt @c.Currency)</div>
+                                <div class="shortcut-btns">
+                                    @foreach (var p in new[] { 25, 50, 75, 90 })
+                                    {
+                                        <button type="button" class="btn btn-outline-secondary btn-sm" data-price-group="base" data-price-action="pct" data-pct="@p">-@p%</button>
+                                    }
+                                </div>
+                            </div>
+                        }
+                    </div>
+
+                    <div class="price-alert-options">
+                        <div class="form-check form-switch mb-2">
+                            <input type="hidden" name="AutoUpdate" value="false" />
+                            <input class="form-check-input" type="checkbox" id="alertAutoUpdate" name="AutoUpdate" value="true" @(ex?.AutoUpdate == true ? "checked" : "") />
+                            <label class="form-check-label" for="alertAutoUpdate">Автоматично оновлювати ціль при появі кращої ціни</label>
+                        </div>
+                        <div class="ms-4 mb-3">
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="AutoUpdateMode" id="modeMatch" value="MatchLowest" @(ex?.AutoUpdateMode == AlertAutoUpdateMode.MatchLowest ? "checked" : "") />
+                                <label class="form-check-label small" for="modeMatch">Дорівняти новій найнижчій ціні</label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="AutoUpdateMode" id="modeBeat" value="BeatLowest" @(ex is null || ex.AutoUpdateMode == AlertAutoUpdateMode.BeatLowest ? "checked" : "") />
+                                <label class="form-check-label small" for="modeBeat">Залишатись нижче нової найнижчої</label>
+                            </div>
+                        </div>
+                        <div class="row g-2">
+                            <div class="col-md-6">
+                                <label class="form-label small" for="alertShop">Магазин</label>
+                                <select class="form-select form-select-sm" id="alertShop" name="ShopId">
+                                    <option value="">Усі магазини</option>
+                                    @foreach (var shop in c.Shops)
+                                    {
+                                        <option value="@shop.ShopId" selected="@(ex?.ShopId == shop.ShopId)">@shop.ShopName</option>
+                                    }
+                                </select>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label small">Сповіщення</label>
+                                <input type="text" class="form-control form-control-sm" value="На сайті" readonly disabled />
+                            </div>
+                        </div>
+                    </div>
                 </div>
-              </div>
-            }
 
-            @if (c.BasePrice.HasValue)
-            {
-              <div class="shortcut-group">
-                <div class="shortcut-group-title">Базова ціна (@baseFmt @c.Currency)</div>
-                <div class="shortcut-btns">
-                  @foreach (var p in new[] { 25, 50, 75, 90 })
-                  {
-                    <button type="button" class="btn btn-outline-secondary btn-sm" data-price-group="base" data-price-action="pct" data-pct="@p">-@p%</button>
-                  }
+                <div class="modal-footer justify-content-between align-items-center">
+                    <div class="d-flex gap-2">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Скасувати</button>
+                        @if (ex is not null)
+                        {
+                            <button type="submit" formaction="/Catalog/Details/@c.GameId?handler=DeleteAlert" formmethod="post" class="btn btn-outline-danger" onclick="return confirm('Видалити price alert?');">Видалити</button>
+                        }
+                    </div>
+                    <button type="submit" class="btn btn-primary">Зберегти</button>
                 </div>
-              </div>
-            }
-          </div>
-
-          <div class="price-alert-options">
-            <div class="form-check form-switch mb-2">
-              <input type="hidden" name="AutoUpdate" value="false" />
-              <input class="form-check-input" type="checkbox" id="alertAutoUpdate" name="AutoUpdate" value="true"
-                     @(ex?.AutoUpdate == true ? "checked" : "") />
-              <label class="form-check-label" for="alertAutoUpdate">
-                Автоматично оновлювати ціль при появі кращої ціни
-              </label>
-            </div>
-            <div class="ms-4 mb-3">
-              <div class="form-check">
-                <input class="form-check-input" type="radio" name="AutoUpdateMode" id="modeMatch" value="MatchLowest"
-                       @(ex?.AutoUpdateMode == AlertAutoUpdateMode.MatchLowest ? "checked" : "") />
-                <label class="form-check-label small" for="modeMatch">Дорівняти новій найнижчій ціні</label>
-              </div>
-              <div class="form-check">
-                <input class="form-check-input" type="radio" name="AutoUpdateMode" id="modeBeat" value="BeatLowest"
-                       @(ex is null || ex.AutoUpdateMode == AlertAutoUpdateMode.BeatLowest ? "checked" : "") />
-                <label class="form-check-label small" for="modeBeat">Залишатись нижче нової найнижчої</label>
-              </div>
-            </div>
-
-            <div class="row g-2">
-              <div class="col-md-6">
-                <label class="form-label small" for="alertShop">Магазин</label>
-                <select class="form-select form-select-sm" id="alertShop" name="ShopId">
-                  <option value="">Усі магазини</option>
-                  @foreach (var shop in c.Shops)
-                  {
-                    if (ex?.ShopId == shop.ShopId)
-                    {
-                      <option value="@shop.ShopId" selected>@shop.ShopName</option>
-                    }
-                    else
-                    {
-                      <option value="@shop.ShopId">@shop.ShopName</option>
-                    }
-                  }
-                </select>
-              </div>
-              <div class="col-md-6">
-                <label class="form-label small">Сповіщення</label>
-                <input type="text" class="form-control form-control-sm" value="На сайті" readonly disabled />
-              </div>
-            </div>
-          </div>
+            </form>
         </div>
-
-        <div class="modal-footer justify-content-between align-items-center">
-          <div class="d-flex gap-2">
-            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Скасувати</button>
-            @if (ex is not null)
-            {
-              <button type="submit" formaction="/Catalog/Details/@c.GameId?handler=DeleteAlert"
-                      formmethod="post" class="btn btn-outline-danger"
-                      onclick="return confirm('Видалити price alert?');">Видалити</button>
-            }
-          </div>
-          <button type="submit" class="btn btn-primary">Зберегти</button>
-        </div>
-      </form>
     </div>
-  </div>
 </div>

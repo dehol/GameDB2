@@ -1,4 +1,4 @@
-@page "/Catalog/Details/{gameId:int}"
+@page "/Catalog/Details/{id:int}"
 @using GameDB.Application.DTOs
 @model GameDB.Web.Pages.Catalog.DetailsModel
 @{
@@ -21,12 +21,6 @@
     return;
 }
 
-@*
-  Локальні хелпери.
-  bestPrice    — найменша FinalPrice серед офферів (для GameQuickActionsModel).
-  ShopColor()  — призначає колір ліній графіка за індексом (ShopPriceHistoryDto не зберігає колір).
-  returnUrl    — сторінка повернення після wishlist-мутацій.
-*@
 @{
     decimal? bestPrice = g.Offers.Count > 0
         ? g.Offers.Min(o => o.FinalPrice ?? o.CurrentPrice)
@@ -45,7 +39,6 @@
     string returnUrl = $"/Catalog/Details/{g.GameId}";
 }
 
-@* ── Breadcrumb ──────────────────────────────────────────────────────────── *@
 <nav aria-label="breadcrumb" class="mb-3">
     <ol class="breadcrumb small">
         <li class="breadcrumb-item"><a href="/Catalog">Каталог</a></li>
@@ -55,11 +48,7 @@
 
 @await Html.PartialAsync("_CollectionMessages")
 
-@* ════════════════════════════════════════════════════════════════════════════
-   HERO: обкладинка + мета
-════════════════════════════════════════════════════════════════════════════ *@
 <div class="game-detail">
-
     <div class="game-detail-hero">
         @if (!string.IsNullOrEmpty(g.HeaderImage))
         {
@@ -143,15 +132,6 @@
                 </div>
             }
 
-            @*
-              GameQuickActionsModel:
-                GameId          — ідентифікатор гри
-                InWishlist      — зі стану колекції (Collection?.InWishlist)
-                SuggestedPrice  — найменша ціна серед офферів
-                ReturnUrl       — повернення після POST-мутації
-              DetailsModel не має IsInWishlist/ReturnUrl напряму —
-              беремо з Collection?.InWishlist та формуємо returnUrl вище.
-            *@
             @if (User.IsInRole("User"))
             {
                 <div class="mt-3">
@@ -167,7 +147,6 @@
         </div>
     </div>
 
-    @* ── Опис ──────────────────────────────────────────────────────────────── *@
     @if (!string.IsNullOrWhiteSpace(Model.SanitizedDescription))
     {
         <div class="game-detail-description mt-4">
@@ -176,17 +155,6 @@
         </div>
     }
 
-    @* ════════════════════════════════════════════════════════════════════════
-       OFFERS TABLE
-       GameOfferDto:
-         ShopName      — назва магазину (заголовок рядка, Title відсутній)
-         CurrentPrice  — decimal (NON-nullable, без ?.ToString())
-         FinalPrice    — decimal? (nullable, ?.ToString() дозволено)
-         Discount      — int відсоток
-         Currency      — рядок валюти
-         DownloadUrl   — посилання (не StoreUrl!)
-         IsFree        — відсутній; визначаємо через CurrentPrice == 0
-    ════════════════════════════════════════════════════════════════════════ *@
     @if (g.Offers.Count > 0)
     {
         <div class="mt-4">
@@ -261,21 +229,6 @@
         </div>
     }
 
-    @* ════════════════════════════════════════════════════════════════════════
-       PRICE HISTORY CHART
-       DetailsModel.PriceHistory  — List<ShopPriceHistoryDto>  (не PriceHistories!)
-       ShopPriceHistoryDto:
-         ShopName   — назва магазину
-         Points     — List<PriceHistoryPointDto>  (не PricePoints!)
-       PriceHistoryPointDto:
-         RecordedAt — DateTime  (не Date!)
-         Price      — decimal
-         Currency   — string
-       ShopColor    — відсутній у DTO; призначається локальним хелпером ShopColor(index).
-
-       Дані серіалізуються server-side у <script type="application/json"> і
-       читаються у price-chart.js через JSON.parse — без inline-значень у JS.
-    ════════════════════════════════════════════════════════════════════════ *@
     @if (Model.PriceHistory.Count > 0 && Model.PriceHistory.Any(h => h.Points.Count > 0))
     {
         <div class="mt-4">
@@ -305,7 +258,6 @@
                 <canvas id="priceHistoryChart"></canvas>
             </div>
 
-            @* All-time low per shop *@
             <div class="row g-2 mt-2">
                 @for (int i = 0; i < Model.PriceHistory.Count; i++)
                 {
@@ -328,12 +280,6 @@
             </div>
         </div>
 
-        @*
-          JSON для price-chart.js.
-          Поля:  shopName, shopColor, pricePoints[].date, pricePoints[].price
-          RecordedAt → date (рядок "yyyy-MM-dd")
-          ShopColor  → обчислено локально за індексом
-        *@
         <script id="priceHistoryData" type="application/json">
             @Html.Raw(System.Text.Json.JsonSerializer.Serialize(
                 Model.PriceHistory.Select((h, i) => new
@@ -350,13 +296,6 @@
         </script>
     }
 
-    @* ── Зовнішні ідентифікатори ─────────────────────────────────────────── *@
-    @*
-      GameDetailDto.ExternalIds — Dictionary<string,string> (не ExternalLinks!).
-      Ключ = назва магазину, значення = зовнішній ідентифікатор.
-      ShopBaseUrl зберігається в GameOfferDto, а не в ExternalIds,
-      тому просто показуємо ключ/значення без побудови URL.
-    *@
     @if (g.ExternalIds.Count > 0)
     {
         <div class="mt-4">
@@ -371,7 +310,6 @@
             </div>
         </div>
     }
-
 </div>
 
 @section Scripts {
