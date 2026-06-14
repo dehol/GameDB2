@@ -127,7 +127,7 @@ try
 
     builder.Services
         .AddHttpClient<GameDB.Application.Interfaces.IEGDataClient, GameDB.Infrastructure.ExternalProviders.EGDataClient>()
-        .AddStoreProviderResiliency("egdata", maxConcurrency: 3);   // 2 HTTP-запити/гру — community API
+        .AddStoreProviderResiliency("egdata", maxConcurrency: 1);   // 2 HTTP-запити/гру — community API
 
     // ── Store providers & import ─────────────────────────────────────────────
 

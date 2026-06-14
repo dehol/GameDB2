@@ -52,8 +52,10 @@ public record ImportJobStatusDto(
 
 public record AdminDashboardDto(
     AdminStatsDto Stats,
+    ImportJobStatusDto BasicImport,
     ImportJobStatusDto GameEnrichment,
-    ImportJobStatusDto PriceSync);
+    ImportJobStatusDto PriceSync
+    );
 
 public sealed record AdminGameRowDto(
     int     GameId,

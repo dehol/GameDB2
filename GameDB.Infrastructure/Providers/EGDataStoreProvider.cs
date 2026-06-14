@@ -2,12 +2,13 @@ using GameDB.Application.Constants;
 using GameDB.Application.DTOs;
 using GameDB.Application.DTOs.Store;
 using GameDB.Application.Interfaces;
-using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Logging;
 
 namespace GameDB.Infrastructure.Providers;
 
 public sealed class EGDataStoreProvider(
-    IEGDataClient client) : IStoreProvider
+    IEGDataClient client,
+    ILogger<GogStoreProvider> logger) : IStoreProvider
 {
     private const int PageLimit = 50;
 
@@ -18,38 +19,30 @@ public sealed class EGDataStoreProvider(
     {
         var result = new List<StoreGameListItem>();
         int page = 1;
-        int consecutiveErrors = 0;
-        const int maxRetries = 3;
+        var dtoFirst = await client.GetItemsPageAsync(page, PageLimit, ct);
+        int iterations = dtoFirst.Total / dtoFirst.Limit;
 
-        while (true)
+        for (int i = 0; i < iterations; i++)
         {
+            Console.WriteLine(i);
             ct.ThrowIfCancellationRequested();
 
             var dto = await client.GetItemsPageAsync(page, PageLimit, ct);
 
-            if (dto is null)
+            if(dto == null)
             {
-                consecutiveErrors++;
-                if (consecutiveErrors >= maxRetries)
-                {
-                    page++;
-                    consecutiveErrors = 0;
-                    continue;
-                }
                 continue;
             }
-
-            consecutiveErrors = 0;
-
-            if (!dto.HasDataFromServer)
-                break;
+            
 
             foreach (var item in dto.Elements)
             {
                 if (!string.IsNullOrWhiteSpace(item.Title))
                 {
                     result.Add(new StoreGameListItem(item.Id.ToString(), item.Title, item.ProductSlug));
+                    logger.LogInformation(item.Title);
                 }
+                
             }
 
             page++;
@@ -100,12 +93,13 @@ public sealed class EGDataStoreProvider(
     private static string? FindImage(EGDataItemDto dto, params string[] preferredTypes)
     {
         foreach (var type in preferredTypes)
-        {
+        {   
+            if(dto.KeyImages == null) break;
             var img = dto.KeyImages.FirstOrDefault(
                 i => i.Type?.Equals(type, StringComparison.OrdinalIgnoreCase) == true);
             if (img?.Url is not null) return img.Url;
         }
-        return dto.KeyImages.FirstOrDefault()?.Url;
+        return dto.KeyImages.FirstOrDefault().Url;
     }
 
     private static string? NullIfEmpty(string? s) => string.IsNullOrWhiteSpace(s) ? null : s;

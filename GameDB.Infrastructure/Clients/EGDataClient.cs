@@ -61,9 +61,8 @@ public sealed class EGDataClient : IEGDataClient
                     int totalBefore = result.Elements.Count;
 
                     result.Elements.RemoveAll(item =>
-                    (item.EntitlementType != "EXECUTABLE" && item.EntitlementType != "GAME") ||
+                    (item.EntitlementType != "EXECUTABLE") ||
                     item.Status != "ACTIVE" ||
-                    item.Unsearchable ||
                     item.Categories == null ||
                     !item.Categories.Any(c =>
                         c.Path != null &&

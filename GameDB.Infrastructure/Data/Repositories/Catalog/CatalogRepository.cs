@@ -259,11 +259,6 @@ public sealed class CatalogRepository(AppDbContext db) : ICatalogRepository
     public async Task<List<ShopPriceHistoryDto>> GetPriceHistoryAsync(
         int gameId, CancellationToken ct = default)
     {
-        // БУЛО: Include(External+Shop) + Include(PriceHistories) → entity graph
-        //       потім .Where(o => o.PriceHistories.Count > 0) у C# (пост-фільтр)
-        //
-        // СТАЛО: Any() у WHERE (server-side) → тільки offers з хоча б одним записом
-        //        Select → projection без entity materialize
         return await db.GameOffers
             .AsNoTracking()
             .Where(o => o.External.GameId == gameId && o.PriceHistories.Any())

@@ -265,7 +265,7 @@
                     var color = ShopColor(i);
                     if (hist.Points.Count > 0)
                     {
-                        var atl = hist.Points.Min(p => p.Price);
+                        var atl = hist.Points.Min(p => p.Price * (100 - (p.DiscountPercent)) / 100);
                         var cur = hist.Points.FirstOrDefault()?.Currency ?? "";
                         <div class="col-auto">
                             <div class="card border-0 bg-light px-3 py-2 text-center">
@@ -280,6 +280,11 @@
             </div>
         </div>
 
+        
+            decimal FinalPrice(PriceHistoryPointDto p) =>
+                p.Price * (100 - (p.DiscountPercent)) / 100;
+        
+
         <script id="priceHistoryData" type="application/json">
             @Html.Raw(System.Text.Json.JsonSerializer.Serialize(
                 Model.PriceHistory.Select((h, i) => new
@@ -289,7 +294,7 @@
                     pricePoints = h.Points.Select(p => new
                     {
                         date  = p.RecordedAt.ToString("yyyy-MM-dd"),
-                        price = p.Price,
+                        price = FinalPrice(p)
                     })
                 })
             ))
@@ -312,6 +317,11 @@
     }
 </div>
 
+@if (User.IsInRole("User") && Model.AlertContext is not null)
+{
+    <partial name="_PriceAlertModal" model="Model.AlertContext" />
+}
+
 @section Scripts {
     @if (Model.PriceHistory.Count > 0 && Model.PriceHistory.Any(h => h.Points.Count > 0))
     {
@@ -325,5 +335,9 @@
                 priceChart.init('priceHistoryChart', data);
             });
         </script>
+    }
+    @if (User.IsInRole("User") && Model.AlertContext is not null)
+    {
+        <script src="~/js/price-alert.js" asp-append-version="true"></script>
     }
 }

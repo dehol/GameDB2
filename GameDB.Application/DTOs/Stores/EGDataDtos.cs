@@ -14,15 +14,17 @@ public sealed class EGDataListResponseDto
 
     [JsonPropertyName("paging")]
     public EGDataPagingDto? Paging { get; init; }
+    
+    [JsonPropertyName("total")]
+    public int Total { get; init; }
+
+    [JsonPropertyName("limit")]
+    public int Limit { get; init; }
 }
 
 public sealed class EGDataPagingDto
 {
-    [JsonPropertyName("total")]
-    public int Total { get; init; }
 
-    [JsonPropertyName("count")]
-    public int Count { get; init; }
 }
 
 // ── Single item ───────────────────────────────────────────────────────────────

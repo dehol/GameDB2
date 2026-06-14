@@ -9,6 +9,7 @@ public sealed class AdminService : IAdminService
 {
     private readonly IAdminRepository         _adminRepo;
     private readonly IBackgroundJobClient     _jobClient;
+    private readonly BasicImportOperationState _basicImportState;
     private readonly EnrichmentOperationState _enrichmentState;
     private readonly PriceSyncOperationState  _priceSyncState;
 
@@ -19,11 +20,13 @@ public sealed class AdminService : IAdminService
     public AdminService(
         IAdminRepository         adminRepo,
         IBackgroundJobClient     jobClient,
+        BasicImportOperationState basicImportState,
         EnrichmentOperationState enrichmentState,
         PriceSyncOperationState  priceSyncState)
     {
         _adminRepo       = adminRepo;
         _jobClient       = jobClient;
+        _basicImportState = basicImportState;
         _enrichmentState = enrichmentState;
         _priceSyncState  = priceSyncState;
     }
@@ -31,11 +34,11 @@ public sealed class AdminService : IAdminService
     public async Task<AdminDashboardDto> GetDashboardAsync(CancellationToken ct = default)
     {
         var stats = await _adminRepo.GetStatsAsync(ct);
-
         return new AdminDashboardDto(
             stats,
             ImportJobStatusDto.FromState(_enrichmentState, "Збагачення деталей"),
-            ImportJobStatusDto.FromState(_priceSyncState,  "Синхронізація цін"));
+            ImportJobStatusDto.FromState(_priceSyncState,  "Синхронізація цін"),
+            ImportJobStatusDto.FromState(_basicImportState, "Базовий імпорт"));
     }
 
     public Task<AdminGameListDto> GetGamesAsync(AdminGameCoverageFilter filter, int page, int pageSize,string? search = null, CancellationToken ct = default)

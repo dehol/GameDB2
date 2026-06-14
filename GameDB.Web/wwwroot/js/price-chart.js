@@ -1,15 +1,8 @@
 /**
  * price-chart.js — Динаміка цін для картки гри (GameDB)
- *
- * Вхідні дані очікуються у форматі:
- *   [{ shopName, shopColor, pricePoints: [{ date: "YYYY-MM-DD", price }] }]
- *
- * Серіалізуються server-side у <script id="priceHistoryData" type="application/json">
- * і читаються через JSON.parse у Details.cshtml.
- *
- * Структура БД (нагадування): PriceHistory дістається транзитно —
- *   Game → GameExternalIds[] → GameOffers[] → PriceHistories[]
- * Жодного прямого game.GameOffers — CS1061.
+ * 
+ * Тепер автоматично подовжує графік до сьогоднішньої дати,
+ * використовуючи останню відому ціну для кожного магазину.
  */
 
 const priceChart = (() => {
@@ -17,7 +10,16 @@ const priceChart = (() => {
     let chart = null;
 
     /**
-     * Збирає всі унікальні дати з усіх магазинів і сортує їх.
+     * Повертає сьогоднішню дату в форматі YYYY-MM-DD.
+     */
+    function getTodayDate() {
+        const today = new Date();
+        return today.toISOString().slice(0, 10);
+    }
+
+    /**
+     * Збирає всі унікальні дати з усіх магазинів + додає сьогоднішню,
+     * сортує їх.
      * @param {Array} histories
      * @returns {string[]}
      */
@@ -26,20 +28,46 @@ const priceChart = (() => {
         histories.forEach(h =>
             h.pricePoints.forEach(p => dates.add(p.date))
         );
+        // Додаємо сьогоднішню дату
+        dates.add(getTodayDate());
         return [...dates].sort();
     }
 
     /**
+     * Для одного магазину: повертає мапу {дата: ціна} + додає сьогоднішню
+     * дату з останньою відомою ціною (якщо сьогодні ще немає точки).
+     * @param {{ shopName: string, shopColor: string, pricePoints: {date:string,price:number}[] }} history
+     * @returns {Map<string, number>}
+     */
+    function buildPriceMapWithToday(history) {
+        const priceMap = new Map(
+            history.pricePoints.map(p => [p.date, p.price])
+        );
+
+        // Знаходимо останню дату та ціну
+        if (history.pricePoints.length === 0) return priceMap;
+
+        const lastPoint = history.pricePoints.reduce((latest, p) =>
+            p.date > latest.date ? p : latest
+        );
+        const today = getTodayDate();
+
+        // Якщо сьогодні немає в даних і остання дата раніше сьогодні
+        if (!priceMap.has(today) && lastPoint.date < today) {
+            priceMap.set(today, lastPoint.price);
+        }
+
+        return priceMap;
+    }
+
+    /**
      * Будує dataset для Chart.js для одного магазину.
-     * Дати без даних заповнюються null (Chart.js пропускає їх).
      * @param {{ shopName: string, shopColor: string, pricePoints: {date:string,price:number}[] }} history
      * @param {string[]} allLabels
      * @returns {object}
      */
     function buildDataset(history, allLabels) {
-        const priceMap = new Map(
-            history.pricePoints.map(p => [p.date, p.price])
-        );
+        const priceMap = buildPriceMapWithToday(history);
         return {
             label:                history.shopName,
             data:                 allLabels.map(d => priceMap.get(d) ?? null),
@@ -49,9 +77,9 @@ const priceChart = (() => {
             pointRadius:          3,
             pointHoverRadius:     5,
             pointBackgroundColor: history.shopColor,
-            tension:              0.3,
+            stepped:              true,    // ступінчаста лінія (горизонталь + вертикаль)
             fill:                 false,
-            spanGaps:             true,   // з'єднує розриви, де ціна відсутня
+            spanGaps:             false,
         };
     }
 
@@ -69,7 +97,7 @@ const priceChart = (() => {
         const labels   = buildLabels(histories);
         const datasets = histories.map(h => buildDataset(h, labels));
 
-        // Знищуємо попередній екземпляр, якщо є (при hot-reload)
+        // Знищуємо попередній екземпляр
         if (chart) {
             chart.destroy();
             chart = null;
@@ -107,13 +135,12 @@ const priceChart = (() => {
                 },
                 scales: {
                     x: {
-                        type:         'category',
+                        type: 'category',
                         ticks: {
                             maxTicksLimit: 10,
                             maxRotation:   30,
                             font:          { size: 11 },
                             callback(val, idx) {
-                                // Показуємо дату скорочено: "Jan '24"
                                 const d = new Date(this.getLabelForValue(idx));
                                 return d.toLocaleDateString('uk-UA', {
                                     month: 'short',
@@ -143,7 +170,7 @@ const priceChart = (() => {
     /**
      * Показує/приховує датасети за назвою магазину.
      * @param {string}      shopName  'all' або назва конкретного магазину
-     * @param {HTMLElement} btn       кнопка, що була натиснута (для підсвічення)
+     * @param {HTMLElement} btn       кнопка, що була натиснута
      */
     function showShops(shopName, btn) {
         if (!chart) return;
@@ -153,7 +180,6 @@ const priceChart = (() => {
         });
         chart.update('active');
 
-        // Оновлення активного стану кнопок
         const tabs = document.getElementById('shopTabs');
         if (tabs) {
             tabs.querySelectorAll('button').forEach(b => b.classList.remove('active'));
@@ -161,7 +187,7 @@ const priceChart = (() => {
         }
     }
 
-    // ── Утиліта: hex → rgba ────────────────────────────────────────────────
+    // Утиліта: hex → rgba
     function hexToRgba(hex, alpha) {
         const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
         if (!result) return `rgba(99,102,241,${alpha})`;
