@@ -8,8 +8,7 @@ public sealed class GameAlertService(
     IGameAlertRepository alertRepo,
     IGameRepository games) : IGameAlertService
 {
-    public Task<GamePriceAlertContextDto> GetPriceContextAsync(
-        int gameId, int? userId = null, CancellationToken ct = default)
+    public Task<GamePriceAlertContextDto> GetPriceContextAsync(int gameId, int? userId = null, CancellationToken ct = default)
         => alertRepo.GetPriceContextAsync(gameId, userId, ct);
 
     public async Task SaveAlertAsync(int userId, SavePriceAlertDto dto, CancellationToken ct = default)

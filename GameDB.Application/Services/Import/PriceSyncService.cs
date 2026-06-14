@@ -27,49 +27,7 @@ public sealed class PriceSyncService(
     // InvisibilityTimeout у PostgreSqlStorageOptions повинен бути БІЛЬШИМ за це значення.
     private static readonly TimeSpan ProviderTimeout = TimeSpan.FromHours(6);
 
-    // Обмежує паралельні HTTP-запити в одному батчі — уникнення circuit breaker SteamSpy.
-    private const int MaxParallelPriceFetches = 15;
-
     public PriceSyncOperationState State => state;
-
-    // ── Ручний запуск (legacy, один job для всіх) ─────────────────────────────
-
-    public async Task RunPriceSyncJobAsync(string? providerSlug, CancellationToken ct)
-    {
-        if (!state.TryStart())
-        {
-            logger.LogWarning("Спроба подвійного запуску синхронізації цін відхилена.");
-            return;
-        }
-
-        try
-        {
-            var active = GetProviders(providerSlug);
-
-            // Total = 0: кожен провайдер додасть свою кількість через AddToTotal
-            state.ResetProgress(0, providerSlug ?? "Всі магазини", "Синхронізація цін");
-
-            logger.LogInformation(
-                "Синхронізація цін (legacy): {Count} провайдерів — паралельно",
-                active.Count);
-
-            await Task.WhenAll(active.Select(p => RunProviderInternalAsync(p, ct)));
-
-            var msg = $"Завершено. Оновлено: {state.Processed}, Помилок: {state.Failed}";
-            state.MarkFinished(msg);
-            logger.LogInformation("✅ {Msg}", msg);
-        }
-        catch (OperationCanceledException)
-        {
-            state.MarkFinished($"Зупинено. Оновлено: {state.Processed}, Помилок: {state.Failed}");
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "Критична помилка під час синхронізації цін");
-            state.LastError = ex.Message;
-            state.MarkFinished($"Аварійне завершення. Оновлено: {state.Processed}");
-        }
-    }
 
     // ── Запуск одного провайдера (основний шлях через Hangfire) ──────────────
     // CancellationToken.None у Enqueue — Hangfire замінює на ShutdownToken при виконанні.
@@ -200,29 +158,17 @@ public sealed class PriceSyncService(
                 .Select(e => (Game: g, ExternalIdRecord: e)))
             .ToList();
 
-        // ── Фаза 1: паралельний HTTP з обмеженням ────────────────────────────────
-        using var fetchGate = new SemaphoreSlim(MaxParallelPriceFetches);
-
         var fetchTasks = pairs.Select(async pair =>
         {
-            await fetchGate.WaitAsync(ct);
             try
             {
-                ct.ThrowIfCancellationRequested();
-                try
-                {
-                    var price = await provider.GetPriceAsync(pair.ExternalIdRecord.ExternalId, ct);
-                    return (RecordId: pair.ExternalIdRecord.Id, Price: price, Error: (Exception?)null);
-                }
-                catch (OperationCanceledException) { throw; }
-                catch (Exception ex)
-                {
-                    return (RecordId: pair.ExternalIdRecord.Id, Price: (StorePriceInfo?)null, Error: ex);
-                }
+                var price = await provider.GetPriceAsync(pair.ExternalIdRecord.ExternalId, ct);
+                return (RecordId: pair.ExternalIdRecord.Id, Price: price, Error: (Exception?)null);
             }
-            finally
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex)
             {
-                fetchGate.Release();
+                return (RecordId: pair.ExternalIdRecord.Id, Price: (StorePriceInfo?)null, Error: ex);
             }
         });
 
@@ -281,13 +227,4 @@ public sealed class PriceSyncService(
 
         return (updated, skipped, failed);
     }
-
-    // ── Хелпери ───────────────────────────────────────────────────────────────
-
-    private IReadOnlyList<IStoreProvider> GetProviders(string? slug)
-        => string.IsNullOrEmpty(slug)
-            ? _providers
-            : _providers
-                .Where(p => p.Slug.Equals(slug, StringComparison.OrdinalIgnoreCase))
-                .ToList();
 }

@@ -37,12 +37,12 @@ public sealed class RecommendationEngine(
     private const double W_POPULAR   = 0.05;
 
     // ── Feedback ──────────────────────────────────────────────────────────────
-    private const double FEEDBACK_TAG_BONUS   = 0.02; // за кожен спільний тег
-    private const double FEEDBACK_GENRE_BONUS = 0.03; // за кожен спільний жанр
-    private const double FEEDBACK_CAP         = 0.15; // максимальний feedback_bonus
+    private const double FEEDBACK_TAG_BONUS   = 0.02;
+    private const double FEEDBACK_GENRE_BONUS = 0.03;
+    private const double FEEDBACK_CAP         = 0.15;
 
     // ── Candidate limit ───────────────────────────────────────────────────────
-    private const int CANDIDATE_LIMIT = 3000;
+    private const int CANDIDATE_LIMIT = 300;
 
     // ── Default embedding similarity коли embedding відсутній ────────────────
     private const double DEFAULT_EMB_SIM = 0.5;
@@ -93,16 +93,13 @@ public sealed class RecommendationEngine(
         var prefTagSet   = ToLowerSet(req.BoostTags.Concat(req.RequiredTags));
         var prefGenreSet = ToLowerSet(req.BoostGenres.Concat(req.RequiredGenres));
 
-        // Нормалізація рейтингу
         double maxRating = filtered.Max(g => g.Rating ?? 0);
         if (maxRating <= 0) maxRating = 10.0;
 
-        // User embedding (null → DEFAULT_EMB_SIM для всіх)
         float[]? userEmb = req.UserEmbedding.Count > 0
             ? req.UserEmbedding.ToArray()
             : null;
 
-        // Feedback sets: теги та жанри вподобаних ігор
         var (likedTagSet, likedGenreSet) = await GetFeedbackSetsAsync(req.UserId, ct);
 
         var scored = filtered
@@ -123,28 +120,34 @@ public sealed class RecommendationEngine(
     private async Task<List<Game>> RetrieveCandidatesAsync(
         HybridRecommendRequest req, CancellationToken ct)
     {
+        // AsSplitQuery: уникаємо декартового вибуху при кількох Include.
+        // EF Core виконає окремий SELECT для кожного Include замість одного JOIN,
+        // що усуває дублювання рядків (Tags × Genres × GameOffers).
         var baseQuery = db.Set<Game>()
             .Include(g => g.Tags)
             .Include(g => g.Genres)
             .Include(g => g.GameExternalIds).ThenInclude(ge => ge.GameOffers)
             .Include(g => g.GameExternalIds).ThenInclude(ge => ge.Shop)
+            .AsSplitQuery()
             .AsNoTracking();
-        var test = baseQuery.Count();
-        // Векторний пошук якщо є user embedding
+
         if (req.UserEmbedding.Count > 0)
         {
             var pgVec = new Vector(req.UserEmbedding.ToArray());
 
-            var result =  await baseQuery
+            var result = await baseQuery
                 .Where(g => g.Embedding != null)
                 .OrderBy(g => g.Embedding!.CosineDistance(pgVec))
                 .Take(CANDIDATE_LIMIT)
                 .ToListAsync(ct);
-            logger.LogInformation("Векторний пошук: знайдено {Count} кандидатів (ліміт {Limit})", result.Count, CANDIDATE_LIMIT);
-return result;
+
+            logger.LogInformation(
+                "Векторний пошук: знайдено {Count} кандидатів (ліміт {Limit})",
+                result.Count, CANDIDATE_LIMIT);
+
+            return result;
         }
 
-        // Fallback: genre/tag-based retrieval (без embedding)
         return await FallbackRetrievalAsync(req, baseQuery, ct);
     }
 
@@ -153,18 +156,20 @@ return result;
         IQueryable<Game>       baseQuery,
         CancellationToken      ct)
     {
-        // Фільтруємо за required/boost жанрами якщо є
         var targetGenres = req.RequiredGenres.Concat(req.BoostGenres)
-            .Select(g => g.ToLowerInvariant()).ToList();
+            .Select(g => g.ToLowerInvariant())
+            .Distinct()
+            .ToList();
 
         if (targetGenres.Count > 0)
         {
+            // Contains → Npgsql транслює у LOWER(name) = ANY(@p)
+            // Використовує B-tree індекс на lower("Name") якщо він є:
+            // CREATE INDEX idx_genre_name_lower ON "Genres" (lower("Name"));
             baseQuery = baseQuery.Where(g =>
-                g.Genres.Any(gg =>
-                    targetGenres.Any(tg =>
-                        EF.Functions.ILike(gg.Name, $"%{tg}%"))));
+                g.Genres.Any(gg => targetGenres.Contains(gg.Name.ToLower())));
         }
-        
+
         return await baseQuery
             .OrderByDescending(g => g.Rating)
             .Take(CANDIDATE_LIMIT)
@@ -365,8 +370,6 @@ return result;
             Currency  = bestOffer?.Currency,
             ShopName  = bestOffer?.ShopName,
             IsFree    = bestOffer?.FinalPrice == 0,
-            // Обрізаємо опис до 300 символів — достатньо для LLM explanation_node
-            // без зайвого навантаження на контекст агента
             Description = g.Description is { Length: > 0 }
                 ? (g.Description.Length > 300
                     ? g.Description[..300] + "…"

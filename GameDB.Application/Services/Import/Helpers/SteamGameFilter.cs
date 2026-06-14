@@ -28,13 +28,4 @@ public class SteamGameFilter
         
         return true;
     }
-
-    public bool IsValidType(string? type)
-    {
-        if (string.IsNullOrEmpty(type)) return false;
-        return type.Equals("game", StringComparison.OrdinalIgnoreCase) 
-        || type.Equals("packages", StringComparison.OrdinalIgnoreCase)
-        || type.Equals("package_groups", StringComparison.OrdinalIgnoreCase)
-        || type.Equals("bundle", StringComparison.OrdinalIgnoreCase);
-    }
 }

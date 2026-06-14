@@ -358,6 +358,14 @@ else
 }
 
 @* ── Пагінація ───────────────────────────────────────────────────────────── *@
+@*
+   Пагінація навмисно НЕ використовує hx-get/hx-target на самих лінках.
+   Причина: HTMX v2 має регрес — swap не завжди виконується для елементів
+   усередині #games-container після динамічного оновлення контенту.
+   Рішення: onclick → catalogGoToPage(N) → оновлює hiddenPage у filterForm
+   і викликає requestSubmit(). filterForm вже підключений до HTMX і гарантовано
+   робить swap. href залишається для fallback (без JS / SEO).
+*@
 @if (m.Result.TotalPages > 1)
 {
     <nav class="mt-4" aria-label="Сторінки каталогу">
@@ -368,9 +376,7 @@ else
                 <li class="page-item">
                     <a class="page-link"
                        href="@m.PageUrl(m.Result.Page - 1)"
-                       hx-get="@m.PageUrl(m.Result.Page - 1)"
-                       hx-target="#games-container"
-                       hx-push-url="true"
+                       onclick="return catalogGoToPage(@(m.Result.Page - 1))"
                        aria-label="Попередня">‹</a>
                 </li>
             }
@@ -385,9 +391,7 @@ else
                 <li class="page-item">
                     <a class="page-link"
                        href="@m.PageUrl(1)"
-                       hx-get="@m.PageUrl(1)"
-                       hx-target="#games-container"
-                       hx-push-url="true">1</a>
+                       onclick="return catalogGoToPage(1)">1</a>
                 </li>
                 @if (startPage > 2)
                 {
@@ -402,9 +406,7 @@ else
                 <li class="page-item @(p == m.Result.Page ? "active" : "")">
                     <a class="page-link"
                        href="@m.PageUrl(p)"
-                       hx-get="@m.PageUrl(p)"
-                       hx-target="#games-container"
-                       hx-push-url="true"
+                       onclick="return catalogGoToPage(@p)"
                        @(p == m.Result.Page ? "aria-current=\"page\"" : "")>@p</a>
                 </li>
             }
@@ -420,9 +422,7 @@ else
                 <li class="page-item">
                     <a class="page-link"
                        href="@m.PageUrl(m.Result.TotalPages)"
-                       hx-get="@m.PageUrl(m.Result.TotalPages)"
-                       hx-target="#games-container"
-                       hx-push-url="true">@m.Result.TotalPages</a>
+                       onclick="return catalogGoToPage(@m.Result.TotalPages)">@m.Result.TotalPages</a>
                 </li>
             }
 
@@ -431,9 +431,7 @@ else
                 <li class="page-item">
                     <a class="page-link"
                        href="@m.PageUrl(m.Result.Page + 1)"
-                       hx-get="@m.PageUrl(m.Result.Page + 1)"
-                       hx-target="#games-container"
-                       hx-push-url="true"
+                       onclick="return catalogGoToPage(@(m.Result.Page + 1))"
                        aria-label="Наступна">›</a>
                 </li>
             }

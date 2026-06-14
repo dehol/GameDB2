@@ -281,32 +281,53 @@
 
     <script>
     /**
-     * Після кожного HTMX-settle синхронізуємо приховані поля форми
-     * з поточним URL-рядком. Це вирішує проблему «sort скидається після
-     * зміни фільтра»: sort-посилання оновлюють URL через hx-push-url,
-     * а JS нижче читає нові sortBy / sortDesc і записує їх у форму.
+     * catalogGoToPage(page) — єдина точка входу для пагінації каталогу.
+     *
+     * ЧОМУ не hx-get на самих лінках:
+     *   HTMX v2 має регрес: елементи всередині #games-container після swap
+     *   іноді не виконують DOM-оновлення через hx-get, навіть якщо запит
+     *   проходить (сервер повертає 200 + partial). Симптом: URL змінюється
+     *   (hx-push-url відпрацьовує), але контент залишається старим.
+     *
+     * РІШЕННЯ — filterForm.requestSubmit():
+     *   filterForm знаходиться в sidebar (поза #games-container), тому ніколи
+     *   не перезаписується swap-ом. Його HTMX-зв'язка гарантовано робоча.
+     *   Встановлюємо hiddenPage → запускаємо submit → HTMX сам робить swap.
+     *   Після settle скидаємо hiddenPage назад у 1, щоб зміна фільтрів
+     *   завжди починала з першої сторінки.
+     */
+    window.catalogGoToPage = function (page) {
+        document.getElementById('hiddenPage').value = page;
+        document.getElementById('filterForm').requestSubmit();
+        return false; // блокуємо дефолтну навігацію <a>
+    };
+
+    /**
+     * Після кожного HTMX-settle:
+     *   1. Синхронізуємо sortBy / sortDesc із URL (sort-лінки в partial
+     *      змінюють URL через hx-push-url, форма повинна знати новий стан).
+     *   2. Скидаємо hiddenPage → 1, щоб наступна зміна фільтра стартувала
+     *      з першої сторінки (а не з тієї, на яку щойно перейшли).
      */
     document.body.addEventListener('htmx:afterSettle', function () {
-        const params  = new URLSearchParams(window.location.search);
-        const sortBy  = document.getElementById('hiddenSortBy');
-        const sortDesc = document.getElementById('hiddenSortDesc');
+        const params     = new URLSearchParams(window.location.search);
+        const sortBy     = document.getElementById('hiddenSortBy');
+        const sortDesc   = document.getElementById('hiddenSortDesc');
+        const hiddenPage = document.getElementById('hiddenPage');
 
         if (sortBy   && params.has('sortBy'))   sortBy.value   = params.get('sortBy');
         if (sortDesc && params.has('sortDesc')) sortDesc.value = params.get('sortDesc');
-
-        // Сторінка завжди скидається до 1 при зміні фільтра —
-        // прихований input page=1 залишається незмінним.
+        if (hiddenPage) hiddenPage.value = '1';
     });
 
     /**
-     * При звичайному (не-HTMX) submit форми — прокидаємо в URL
-     * поточне значення сортування перед відправкою.
-     * Потрібно лише якщо JS вимкнений або форма сабміт-ається класично.
+     * При звичайному (не-HTMX) submit форми — прокидаємо поточне сортування
+     * перед відправкою (на випадок класичного сабміту без JS або HTMX).
      */
     document.getElementById('filterForm')
         .addEventListener('submit', function () {
-            const params = new URLSearchParams(window.location.search);
-            const sortBy  = document.getElementById('hiddenSortBy');
+            const params   = new URLSearchParams(window.location.search);
+            const sortBy   = document.getElementById('hiddenSortBy');
             const sortDesc = document.getElementById('hiddenSortDesc');
             if (params.has('sortBy')   && sortBy)   sortBy.value   = params.get('sortBy');
             if (params.has('sortDesc') && sortDesc) sortDesc.value = params.get('sortDesc');

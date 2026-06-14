@@ -29,6 +29,7 @@ public sealed class GameEnrichmentService(
     EnrichmentOperationState state,
     ILogger<GameEnrichmentService> logger) : IGameEnrichmentService
 {
+    const int BatchSize = 50;
     private readonly IReadOnlyList<IStoreProvider> _providers = providers.ToList();
 
     // Жорсткий ліміт на один провайдер.
@@ -92,41 +93,6 @@ public sealed class GameEnrichmentService(
         }
     }
 
-    // ── Legacy: всі провайдери в одному job ───────────────────────────────────
-    public async Task RunEnrichmentJobAsync(string? providerSlug, bool overwriteExisting, CancellationToken ct)
-    {
-        if (!state.TryStart())
-        {
-            logger.LogWarning("Спроба подвійного запуску збагачення ігор відхилена.");
-            return;
-        }
-
-        state.OverwriteExisting = overwriteExisting;
-        state.ResetProgress(0, providerSlug ?? "Всі магазини", "Збагачення деталей");
-
-        try
-        {
-            var activeProviders = string.IsNullOrEmpty(providerSlug)
-                ? _providers
-                : _providers.Where(p => p.Slug.Equals(providerSlug, StringComparison.OrdinalIgnoreCase)).ToList();
-
-            await Task.WhenAll(activeProviders.Select(p =>
-                ProcessProviderInternalAsync(p, overwriteExisting, ct)));
-
-            state.MarkFinished("Збагачення завершено.");
-        }
-        catch (OperationCanceledException)
-        {
-            state.MarkFinished("Збагачення зупинено користувачем.");
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "Критична помилка під час збагачення");
-            state.LastError = ex.Message;
-            state.MarkFinished("Збагачення завершилося аварійно.");
-        }
-    }
-
     // ── Спільна логіка ────────────────────────────────────────────────────────
     private async Task ProcessProviderInternalAsync(
         IStoreProvider provider,
@@ -158,14 +124,14 @@ public sealed class GameEnrichmentService(
         state.AddToTotal(externalIds.Count);
         logger.LogInformation("[{Slug}] {Count} ігор для збагачення.", provider.Slug, externalIds.Count);
 
-        const int batchSize = 50;
-        for (int i = 0; i < externalIds.Count; i += batchSize)
+        
+        for (int i = 0; i < externalIds.Count; i += BatchSize)
         {
             // CT вже містить StopToken через LinkedCts — окрема перевірка
             // !state.IsRunning більше не потрібна: скасування прийде через токен.
             ct.ThrowIfCancellationRequested();
 
-            var batch = externalIds.Skip(i).Take(batchSize).ToList();
+            var batch = externalIds.Skip(i).Take(BatchSize).ToList();
             await EnrichBatchAsync(provider, batch, overwriteExisting, ct);
         }
     }
@@ -191,13 +157,13 @@ public sealed class GameEnrichmentService(
 
         var results = await Task.WhenAll(fetchTasks);
 
-        // ── Фаза 2: завантажуємо ігри з БД одним запитом ──────────────────────
         var successIds = results
             .Where(r => r.Details is not null)
             .Select(r => r.Id)
             .ToList();
 
         var games = await scopedRepo.GetGamesByExternalIdsBatchAsync(provider.ShopId, successIds, ct);
+        //???
         var gamesDict = games
             .SelectMany(g => g.GameExternalIds
                 .Where(e => e.ShopId == provider.ShopId)

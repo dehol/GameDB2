@@ -14,27 +14,22 @@ namespace GameDB.Application.Services.Import;
 /// </summary>
 public sealed class StoreGameMapper
 {
-    public async Task ApplyAsync(
-        Game              game,
-        StoreGameDetails  details,
-        IGameRepository   games,
-        bool              overwriteExisting,
-        CancellationToken ct = default)
+    public async Task ApplyAsync(Game game, StoreGameDetails details, IGameRepository games, bool overwriteExisting, CancellationToken ct = default)
     {
         if (overwriteExisting || string.IsNullOrWhiteSpace(game.Name))
             game.Name = details.Name;
 
-        if (overwriteExisting || string.IsNullOrWhiteSpace(game.HeaderImage))
+        if (overwriteExisting || string.IsNullOrWhiteSpace(game.HeaderImage) || game.HeaderImage != details.HeaderImageUrl)
             game.HeaderImage = details.HeaderImageUrl;
 
-        if (overwriteExisting || string.IsNullOrWhiteSpace(game.IconImage))
+        if (overwriteExisting || string.IsNullOrWhiteSpace(game.IconImage) || game.IconImage != details.IconImageUrl)
             game.IconImage = details.IconImageUrl;
 
         // Description: зберігаємо якщо ще немає або примусово перезаписуємо
         if (overwriteExisting || string.IsNullOrWhiteSpace(game.Description))
             game.Description = details.Description;
 
-        if (details.Rating.HasValue && (overwriteExisting || game.Rating is null))
+        if (details.Rating.HasValue && (overwriteExisting || game.Rating is null) || game.Rating != details.Rating)
             game.Rating = details.Rating;
 
         // Developer і Publisher: зазвичай 0-1 на гру — single-query OK.

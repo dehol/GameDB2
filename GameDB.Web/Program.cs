@@ -1,5 +1,4 @@
 using GameDB.Application.Interfaces;
-using GameDB.Application.Options;
 using GameDB.Application.Services;
 using GameDB.Application.Services.Import;
 using GameDB.Infrastructure.Catalog;
@@ -33,7 +32,6 @@ try
 
     // ── Razor Pages + Controllers ────────────────────────────────────────────
     builder.Services.AddRazorPages();
-    builder.Services.AddMemoryCache();
     builder.Services.AddControllers()
         .AddJsonOptions(o =>
             o.JsonSerializerOptions.Converters.Add(
@@ -105,10 +103,10 @@ try
     builder.Services.AddScoped<IAlertRepository, AlertRepository>();
     builder.Services.AddScoped<IGameAlertRepository, GameAlertRepository>();
     builder.Services.AddScoped<IGameAlertService, GameAlertService>();
-    builder.Services.AddScoped<GameDB.Application.Interfaces.IUserRepository, UserRepository>();
-    builder.Services.AddScoped<GameDB.Application.Interfaces.ICatalogRepository, CatalogRepository>();
-    builder.Services.AddScoped<GameDB.Application.Interfaces.IUserCollectionRepository, UserCollectionRepository>();
-    builder.Services.AddScoped<GameDB.Application.Interfaces.IGameShopRepository, GameShopRepository>();
+    builder.Services.AddScoped<IUserRepository, UserRepository>();
+    builder.Services.AddScoped<ICatalogRepository, CatalogRepository>();
+    builder.Services.AddScoped<IUserCollectionRepository, UserCollectionRepository>();
+    builder.Services.AddScoped<IGameShopRepository, GameShopRepository>();
 
     // ── Сервіси Auth ─────────────────────────────────────────────────────────
     builder.Services.AddScoped<AuthService>();
@@ -118,28 +116,23 @@ try
     builder.Services.AddHttpClient<ISteamClient, SteamClient>();
 
     builder.Services
-        .AddHttpClient<GameDB.Application.Interfaces.ISteamSpyClient, GameDB.Infrastructure.ExternalProviders.SteamSpyClient>()
-        .AddStoreProviderResiliency("steamspy", maxConcurrency: 4); // soft limit ~4 req/s
+        .AddHttpClient<ISteamSpyClient, GameDB.Infrastructure.ExternalProviders.SteamSpyClient>()
+        .AddStoreProviderResiliency("steamspy", maxConcurrency: 3); // soft limit ~4 req/s
 
     builder.Services
-        .AddHttpClient<GameDB.Application.Interfaces.IGogClient, GameDB.Infrastructure.ExternalProviders.GogClient>()
+        .AddHttpClient<IGogClient, GameDB.Infrastructure.ExternalProviders.GogClient>()
         .AddStoreProviderResiliency("gog", maxConcurrency: 2);      // офіційний undocumented API
 
     builder.Services
-        .AddHttpClient<GameDB.Application.Interfaces.IEGDataClient, GameDB.Infrastructure.ExternalProviders.EGDataClient>()
+        .AddHttpClient<IEGDataClient, GameDB.Infrastructure.ExternalProviders.EGDataClient>()
         .AddStoreProviderResiliency("egdata", maxConcurrency: 3);   // 2 HTTP-запити/гру — community API
 
-    // ── Store providers & import ─────────────────────────────────────────────
-    builder.Services.Configure<GameDB.Application.Options.StoreImportOptions>(builder.Configuration.GetSection("StoreImport"));
-    builder.Services.Configure<GameDB.Application.Options.GogImportOptions>(builder.Configuration.GetSection("Gog"));
-    builder.Services.Configure<GameDB.Application.Options.EGDataImportOptions>(builder.Configuration.GetSection("EGData"));
-
-    builder.Services.AddScoped<GameDB.Application.Interfaces.IStoreProvider, GameDB.Infrastructure.Providers.SteamStoreProvider>();
-    builder.Services.AddScoped<GameDB.Application.Interfaces.IStoreProvider, GameDB.Infrastructure.Providers.GogStoreProvider>();
-    builder.Services.AddScoped<GameDB.Application.Interfaces.IStoreProvider, GameDB.Infrastructure.Providers.EGDataStoreProvider>();
+    // ── Store providers  ─────────────────────────────────────────────
+    builder.Services.AddScoped<IStoreProvider, GameDB.Infrastructure.Providers.SteamStoreProvider>();
+    builder.Services.AddScoped<IStoreProvider, GameDB.Infrastructure.Providers.GogStoreProvider>();
+    builder.Services.AddScoped<IStoreProvider, GameDB.Infrastructure.Providers.EGDataStoreProvider>();
 
     // ── Бізнес-сервіси ───────────────────────────────────────────────────────
-    builder.Services.AddScoped<IPriceManagerService, PriceManagerService>();
     builder.Services.AddSingleton<SteamGameFilter>();
     builder.Services.AddScoped<IBasicImportService, BasicImportService>();
     builder.Services.AddScoped<IGameEnrichmentService, GameEnrichmentService>();
@@ -164,8 +157,6 @@ try
     builder.Services.AddScoped<IRecommendationEngine, RecommendationEngine>();
     builder.Services.AddHttpClient();
 
-    builder.Services.Configure<SteamSpyImportOptions>(builder.Configuration.GetSection("SteamSpy"));
-    builder.Services.Configure<GameDB.Application.Options.AdminOptions>(builder.Configuration.GetSection("Admin"));
 
     builder.Services.AddSerilog();
 

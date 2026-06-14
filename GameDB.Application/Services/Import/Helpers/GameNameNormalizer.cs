@@ -19,11 +19,6 @@ public static partial class GameNameNormalizer
     private static readonly Regex Trademarks =
         new(@"[®™©]", RegexOptions.Compiled);
 
-    // Маркери видань — видаляємо (можна розширювати)
-    private static readonly Regex EditionFluff =
-        new(@"\b(deluxe|standard|gold|ultimate|goty|edition|directors\s*cut|remastered|enhanced|pc\s*edition)\b",
-            RegexOptions.Compiled | RegexOptions.IgnoreCase);
-
     // Розділювачі → пробіл
     private static readonly Regex Delimiters =
         new(@"[\-_:,|\/]+", RegexOptions.Compiled);
@@ -57,9 +52,6 @@ public static partial class GameNameNormalizer
 
         // 2. Торгові марки
         result = Trademarks.Replace(result, "");
-
-        // 3. Видання
-        result = EditionFluff.Replace(result, " ");
 
         // 4. Апострофи — прибираємо (don't → dont, can't → cant)
         result = Apostrophes.Replace(result, "");

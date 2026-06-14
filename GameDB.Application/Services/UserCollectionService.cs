@@ -33,7 +33,7 @@ public sealed class UserCollectionService(
         var appIds = await steam.GetWishlistAppIdsAsync(steamId.SteamId!, ct);
         if (appIds.Count == 0)
             return ImportResultDto.Fail(
-                "Не вдалося отримати wishlist Steam. Перевірте API-ключ, приватність профілю та прив'язку Steam.");
+                "Не вдалося отримати wishlist Steam. Перевірте приватність профілю та прив'язку Steam.");
 
         var gameIds = await collections.MapExternalIdsToGameIdsAsync(
             appIds.Select(id => id.ToString()), "steam", ct);

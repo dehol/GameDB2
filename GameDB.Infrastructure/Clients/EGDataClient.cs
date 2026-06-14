@@ -2,9 +2,7 @@ using System.Text.Json;
 using GameDB.Application.DTOs;
 using GameDB.Application.DTOs.Store;
 using GameDB.Application.Interfaces;
-using GameDB.Application.Options;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 using System.Text.Json.Serialization;
 
 namespace GameDB.Infrastructure.ExternalProviders;
@@ -17,7 +15,7 @@ public sealed class EGDataClient : IEGDataClient
 {
     private readonly HttpClient _http;
     private readonly ILogger<EGDataClient> _logger;
-    private readonly string _country;
+    private readonly string _country = "US";
 
     private const string BaseUrl = "https://api.egdata.app";
 
@@ -30,20 +28,15 @@ public sealed class EGDataClient : IEGDataClient
 
     public EGDataClient(
         HttpClient http,
-        IOptions<EGDataImportOptions> options,
         ILogger<EGDataClient> logger)
     {
         _http    = http;
         _logger  = logger;
-        _country = options.Value?.Country ?? "US"; 
     }
 
-    public async Task<EGDataListResponseDto?> GetItemsPageAsync(
-        int page, int limit, CancellationToken ct = default)
+    public async Task<EGDataListResponseDto?> GetItemsPageAsync(int page, int limit, CancellationToken ct = default)
     {
-        // Замінив country=US на динамічний заголовок country={_country}
-        var url = $"{BaseUrl}/items?country={_country}&limit={limit}&page={page}" +
-                  "&sortBy=releaseDate&sortDir=ASC";
+        var url = $"{BaseUrl}/items?country={_country}&limit={limit}&page={page}" + "&sortBy=releaseDate&sortDir=ASC";
         try
         {
             var response = await _http.GetAsync(url, ct);

@@ -1,6 +1,5 @@
 using GameDB.Application.DTOs.Store;
 using GameDB.Application.Interfaces;
-using GameDB.Application.Options;
 using GameDB.Domain.Entities;
 using GameDB.Domain.Enums;
 using Microsoft.Extensions.DependencyInjection;
@@ -12,14 +11,14 @@ namespace GameDB.Application.Services.Import;
 public sealed class BasicImportService(
     IServiceScopeFactory scopeFactory,
     IEnumerable<IStoreProvider> providers,
-    IOptions<StoreImportOptions> options,
     BasicImportOperationState state,
     ILogger<BasicImportService> logger) : IBasicImportService
 {
-    private readonly StoreImportOptions        _options   = options.Value;
     private readonly IReadOnlyList<IStoreProvider> _providers = providers.ToList();
 
     public BasicImportOperationState State => state;
+
+    private const int BatchSize = 200;
 
     /// <remarks>
     /// Зупинка через кнопку адмін-панелі спрацьовує між батчами:
@@ -103,11 +102,11 @@ public sealed class BasicImportService(
         state.AddToTotal(toProcess.Count);
 
         int imported = 0;
-        for (int i = 0; i < toProcess.Count; i += _options.BasicImportBatchSize)
+        for (int i = 0; i < toProcess.Count; i += BatchSize)
         {
             if (ct.IsCancellationRequested || !state.IsRunning) break;
 
-            var batch = toProcess.Skip(i).Take(_options.BasicImportBatchSize).ToList();
+            var batch = toProcess.Skip(i).Take(BatchSize).ToList();
             try
             {
                 using var scope = scopeFactory.CreateScope();

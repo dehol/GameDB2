@@ -2,21 +2,17 @@ using GameDB.Application.Constants;
 using GameDB.Application.DTOs;
 using GameDB.Application.DTOs.Store;
 using GameDB.Application.Interfaces;
-using GameDB.Application.Options;
 using Microsoft.Extensions.Options;
 
 namespace GameDB.Infrastructure.Providers;
 
 public sealed class EGDataStoreProvider(
-    IEGDataClient client,
-    IOptions<EGDataImportOptions> options) : IStoreProvider
+    IEGDataClient client) : IStoreProvider
 {
-    private readonly EGDataImportOptions _opts = options.Value;
     private const int PageLimit = 50;
 
     public int    ShopId                 => ShopIds.Epic;
     public string Slug                   => "epic";
-    public int    DelayBetweenRequestsMs => _opts.DelayBetweenRequestsMs;
 
     public async Task<IReadOnlyCollection<StoreGameListItem>> GetGameListAsync(CancellationToken ct)
     {
@@ -40,7 +36,6 @@ public sealed class EGDataStoreProvider(
                     consecutiveErrors = 0;
                     continue;
                 }
-                await Task.Delay(_opts.DelayBetweenRequestsMs * 2, ct);
                 continue;
             }
 
@@ -58,7 +53,6 @@ public sealed class EGDataStoreProvider(
             }
 
             page++;
-            await Task.Delay(_opts.DelayBetweenRequestsMs, ct);
         }
 
         return result;

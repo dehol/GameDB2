@@ -2,7 +2,6 @@ using GameDB.Application.Constants;
 using GameDB.Application.DTOs.Store;
 using GameDB.Application.DTOs;
 using GameDB.Application.Interfaces;
-using GameDB.Application.Options;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Logging;
 
@@ -10,14 +9,11 @@ namespace GameDB.Infrastructure.Providers;
 
 public sealed class GogStoreProvider(
     IGogClient client,
-    IOptions<GogImportOptions> options,
     ILogger<GogStoreProvider> logger) : IStoreProvider
 {
-    private readonly GogImportOptions _opts = options.Value;
 
     public int    ShopId                 => ShopIds.Gog;
     public string Slug                   => "gog";
-    public int    DelayBetweenRequestsMs => _opts.DelayBetweenRequestsMs;
 
     public async Task<IReadOnlyCollection<StoreGameListItem>> GetGameListAsync(CancellationToken ct)
     {
@@ -49,7 +45,6 @@ public sealed class GogStoreProvider(
             if (dto.Products.Count < 48)
                 break;
 
-            await Task.Delay(_opts.DelayBetweenRequestsMs, ct);
         }
 
         return result;

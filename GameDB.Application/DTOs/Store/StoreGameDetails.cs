@@ -12,7 +12,6 @@ public sealed class StoreGameDetails
     public int?            RatingCount    { get; init; }
     public string?         HeaderImageUrl { get; init; }
     public string?         IconImageUrl   { get; init; }
-    public string?         StoreUrl       { get; init; }
 
     /// <summary>
     /// Опис гри від постачальника. Може містити HTML-розмітку (Steam/GOG).

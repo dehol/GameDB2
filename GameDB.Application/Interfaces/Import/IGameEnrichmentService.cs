@@ -15,9 +15,4 @@ public interface IGameEnrichmentService
     [JobDisplayName("Збагачення: {0}")]
     Task EnrichProviderAsync(string providerSlug, bool overwriteExisting, CancellationToken ct);
 
-    /// <summary>
-    /// Legacy: всі провайдери в одному job через Task.WhenAll.
-    /// Залишено для ручного запуску через Hangfire Dashboard.
-    /// </summary>
-    Task RunEnrichmentJobAsync(string? providerSlug, bool overwriteExisting, CancellationToken ct);
 }

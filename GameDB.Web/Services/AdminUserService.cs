@@ -1,10 +1,19 @@
-using GameDB.Application.Options;
-using Microsoft.Extensions.Options;
-
 namespace GameDB.Web.Services;
 
-public sealed class AdminUserService(IOptions<AdminOptions> options)
+public sealed class AdminUserService
 {
+    private readonly IConfiguration _configuration;
+    public AdminUserService(IConfiguration configuration)
+    {
+        _configuration = configuration;
+    }
+    
     public bool IsAdmin(int userId)
-        => options.Value.UserIds.Contains(userId);
+    {
+        var ids = _configuration
+            .GetSection("Admin:UserIds")
+            .Get<int[]>() ?? [];
+
+        return ids.Contains(userId);
+    }
 }

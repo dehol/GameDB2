@@ -2,7 +2,6 @@ using System.Globalization;
 using GameDB.Application.Constants;
 using GameDB.Application.DTOs.Store;
 using GameDB.Application.Interfaces;
-using GameDB.Application.Options;
 using GameDB.Application.Services;
 using GameDB.Application.Services.Import;
 using Microsoft.Extensions.Options;
@@ -12,13 +11,12 @@ namespace GameDB.Infrastructure.Providers;
 public sealed class SteamStoreProvider(
     ISteamSpyClient spyClient,
     ISteamClient steamClient,
-    SteamGameFilter filter,
-    IOptions<SteamSpyImportOptions> options) : IStoreProvider
+    SteamGameFilter filter) : IStoreProvider
 {
-    private readonly SteamSpyImportOptions _opts = options.Value;
 
     public int    ShopId                 => ShopIds.Steam;
     public string Slug                   => "steam";
+    private int MaxTagsPerGame = 15;
 
     public async Task<IReadOnlyCollection<StoreGameListItem>> GetGameListAsync(CancellationToken ct)
     {
@@ -47,7 +45,7 @@ public sealed class SteamStoreProvider(
 
         var tags = dto.Tags?
             .OrderByDescending(kv => kv.Value)
-            .Take(_opts.MaxTagsPerGame)
+            .Take(MaxTagsPerGame)
             .Select(kv => kv.Key)
             .Where(t => !string.IsNullOrWhiteSpace(t))
             .ToArray() ?? [];
